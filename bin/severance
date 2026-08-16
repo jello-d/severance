@@ -53,6 +53,7 @@ case $cmd in
   seal)    sev_sudo_prime; . "$LIBEXEC/seal.sh";   sev_seal "$@" ;;
   runner)  sev_sudo_prime; . "$LIBEXEC/runner.sh"; sev_runner "$@" ;;
   check)   . "$LIBEXEC/check.sh"; sev_check "$@" ;;
+  context) . "$LIBEXEC/context.sh"; sev_context "$@" ;;
   ''|-h|--help|help) _usage ;;
   *) echo "severance: unknown command: $cmd" >&2; _usage ;;
 esac
