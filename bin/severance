@@ -32,6 +32,10 @@ export SEVERANCE_SHARE
 _usage() {
   cat >&2 <<'EOF'
 usage: severance <command> [args]
+  list                       provisioned profiles (* marks the default)
+  show   [profile]           the resolved settings for a profile / the default
+  use    <profile>|--clear   set (or clear) the default-profile marker
+  init   <name> [key=val..]  scaffold a new profile record
   seal   [profile...]        provision the work boundary (privileged)
   runner [profile...]        provision the rootless-docker runner (privileged)
   check  [--seal|--runner]   audit; non-zero on drift (bare = both)
@@ -42,6 +46,10 @@ EOF
 cmd=${1:-}
 [ "$#" -gt 0 ] && shift
 case $cmd in
+  list)    . "$LIBEXEC/profile.sh"; sev_list "$@" ;;
+  show)    . "$LIBEXEC/profile.sh"; sev_show "$@" ;;
+  use)     . "$LIBEXEC/profile.sh"; sev_use "$@" ;;
+  init)    . "$LIBEXEC/profile.sh"; sev_init "$@" ;;
   seal)    sev_sudo_prime; . "$LIBEXEC/seal.sh";   sev_seal "$@" ;;
   runner)  sev_sudo_prime; . "$LIBEXEC/runner.sh"; sev_runner "$@" ;;
   check)   . "$LIBEXEC/check.sh"; sev_check "$@" ;;

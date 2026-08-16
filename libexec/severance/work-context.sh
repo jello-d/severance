@@ -10,7 +10,9 @@
 #   1. an explicit <name> argument        -> $WC_PROFILES_DIR/<name>
 #   2. a legacy WC_CONFIG file override    (transitional; some modules set it)
 #   3. $WORK_PROFILE                       -> $WC_PROFILES_DIR/$WORK_PROFILE
-#   4. the SOLE provisioned profile if exactly one exists; else fail loud
+#   4. the DEFAULT marker (a profile name in ~/.config/severance/default,
+#      written by `severance use`) -- the active enclave when several exist
+#   5. the SOLE provisioned profile if exactly one exists; else fail loud
 #      (multiple -> return 4 "specify one"; none -> return 1, personal-only).
 #
 # After a successful wc_load:
@@ -19,8 +21,10 @@
 #   WC_SERVICE_OVERLAY_WRITE
 # WC_RUNNER defaults to <label>-runner when the record omits `runner`.
 
-WC_PROFILES_DIR=${WC_PROFILES_DIR:-$HOME/.config/self/profiles}
+WC_PROFILES_DIR=${WC_PROFILES_DIR:-$HOME/.config/severance/profiles}
 WC_PERSONAL_DIR=${WC_PERSONAL_DIR:-$HOME/.claude}   # the fixed personal base
+# The default-profile marker: a single profile name, written by `severance use`.
+WC_DEFAULT_FILE=${WC_DEFAULT_FILE:-$HOME/.config/severance/default}
 
 wc_expand() {   # expand a leading ~/ to $HOME/
   case "$1" in
@@ -51,6 +55,15 @@ _wc_resolve() {   # [name]
     [ -r "$WC_PROFILES_DIR/$WORK_PROFILE" ] && {
       printf '%s\n' "$WC_PROFILES_DIR/$WORK_PROFILE"; return 0; }
     echo "work-context: no such profile: $WORK_PROFILE" >&2; return 1
+  fi
+  # The default marker names the active profile when several are provisioned
+  # (a no-op with one, which the sole-profile rule already resolves).
+  if [ -r "$WC_DEFAULT_FILE" ]; then
+    IFS= read -r _wc_def < "$WC_DEFAULT_FILE" 2>/dev/null || _wc_def=
+    _wc_def=${_wc_def%"${_wc_def##*[![:space:]]}"}   # strip trailing space
+    if [ -n "$_wc_def" ] && [ -r "$WC_PROFILES_DIR/$_wc_def" ]; then
+      printf '%s\n' "$WC_PROFILES_DIR/$_wc_def"; return 0
+    fi
   fi
   _wc_names=$(wc_profiles)
   _wc_n=0
