@@ -1,0 +1,30 @@
+[Unit]
+# tackup-owned (modules/runner). A socat forking relay that fronts the runner's
+# internal rootless-docker socket with a host-visible, group-gated one. socat
+# (unlike systemd-socket-proxyd) carries the Docker API connection HIJACK, so
+# `docker exec -it`, attached `docker run`, and attached `compose up` work.
+#
+# `-t 86400` is LOAD-BEARING. On a NON-tty exec (`docker exec` without -it, or
+# `compose exec -T`) the client half-closes its stdin at once; socat's DEFAULT
+# half-close timeout (-t 0.5s) then tears the whole relay down 0.5s later,
+# cutting off the command's stdout and RETURNING EARLY while the command runs on
+# in the container (looks like exec is fire-and-forget). A large -t makes socat
+# instead wait for the SERVER side to EOF -- the command actually exiting -- so
+# exec blocks and streams correctly. A normal exec still returns the instant the
+# command exits (the reverse EOF short-circuits the timeout), so the big value
+# only bounds a genuinely stuck half-closed connection. (`-it` escaped the bug
+# only because a TTY keeps stdin open, so no half-close ever fired.)
+# Templated at apply time: @HOSTSOCK@ / @INTSOCK@ / @GROUP@.
+Description=Group docker socket (socat relay, hijack-capable)
+Requires=docker.service
+After=docker.service
+
+[Service]
+ExecStart=/usr/bin/socat -t 86400 \
+    UNIX-LISTEN:@HOSTSOCK@,fork,mode=0660,group=@GROUP@,unlink-early \
+    UNIX-CONNECT:@INTSOCK@
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

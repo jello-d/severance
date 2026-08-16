@@ -1,0 +1,50 @@
+#!/bin/sh
+# severance - the work/personal ZDR boundary as a standalone gadget: profile
+# records, the sealed kernel wall (2770 root:group tree + ACLs + git identity
+# split), and the per-enclave rootless-docker runner. Runs standalone (a box
+# with no tackup) or is driven by tackup as a thin delegator.
+#
+#   severance seal   [profile...]      provision the boundary (privileged)
+#   severance runner [profile...]      provision the rootless-docker runner
+#   severance check  [--seal|--runner] audit; non-zero on drift (bare = both)
+#
+# Self-locates its libexec/share beside the binary (through any install
+# symlink), like mux and valet-key. Idempotent; privileged verbs prompt sudo
+# once up front (a no-op when a cache is already warm, e.g. under tackup).
+set -eu
+
+_self=$0
+case $_self in
+  */*) ;;
+  *) _self=$(command -v -- "$_self" 2>/dev/null || printf '%s\n' "$_self") ;;
+esac
+SEVERANCE_SELF=$(readlink -f -- "$_self" 2>/dev/null || printf '%s\n' "$_self")
+export SEVERANCE_SELF
+_bindir=${SEVERANCE_SELF%/*}
+LIBEXEC=$_bindir/../libexec/severance
+SEVERANCE_SHARE=${SEVERANCE_SHARE:-$_bindir/../share/severance}
+export SEVERANCE_SHARE
+
+[ -r "$LIBEXEC/common.sh" ] ||
+  { echo "severance: libexec not found at $LIBEXEC" >&2; exit 1; }
+. "$LIBEXEC/common.sh"
+
+_usage() {
+  cat >&2 <<'EOF'
+usage: severance <command> [args]
+  seal   [profile...]        provision the work boundary (privileged)
+  runner [profile...]        provision the rootless-docker runner (privileged)
+  check  [--seal|--runner]   audit; non-zero on drift (bare = both)
+EOF
+  exit 2
+}
+
+cmd=${1:-}
+[ "$#" -gt 0 ] && shift
+case $cmd in
+  seal)    sev_sudo_prime; . "$LIBEXEC/seal.sh";   sev_seal "$@" ;;
+  runner)  sev_sudo_prime; . "$LIBEXEC/runner.sh"; sev_runner "$@" ;;
+  check)   . "$LIBEXEC/check.sh"; sev_check "$@" ;;
+  ''|-h|--help|help) _usage ;;
+  *) echo "severance: unknown command: $cmd" >&2; _usage ;;
+esac
