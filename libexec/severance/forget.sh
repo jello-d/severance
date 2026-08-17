@@ -51,7 +51,7 @@ sev_forget() {
 
   # --purge: remove the record (unless host-managed), clear the default, and
   # regenerate the git fragment. The TREE stays sealed.
-  if [ -L "$WC_PROFILES_DIR" ]; then
+  if _sev_host_managed; then
     echo "  profiles dir is host-managed; remove the record at the host" >&2
   else
     rm -f "$WC_PROFILES_DIR/$_profile"

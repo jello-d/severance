@@ -35,6 +35,7 @@ sev_show() {
 
 # Set (or clear) the default-profile marker.
 sev_use() {
+  _sev_host_managed && { _sev_host_note use; return 1; }
   case "${1:-}" in
     --clear) rm -f "$WC_DEFAULT_FILE"; echo "severance: default cleared"
              return 0 ;;
@@ -54,6 +55,7 @@ sev_init() {
   _name=${1:-}
   [ -n "$_name" ] || {
     echo "usage: severance init <name> [key=val ...]" >&2; return 2; }
+  _sev_host_managed && { _sev_host_note init; return 1; }
   shift
   _dir=$(_sev_config_dir)/profiles
   mkdir -p "$_dir"
