@@ -148,27 +148,20 @@ seal_gemini_home() {
   _seal_identity_dir "$(_gemini_dir)"
 }
 
-# Place the enclave CLAUDE.md into the (sealed) work_dir. Source of truth is
-# SEVERANCE_ENCLAVE_MD (a tackup delegator points it at its rich doc; standalone
-# defaults to the package's generic note); the copy carries a "Managed by"
-# marker, so we keep OUR copy current but never clobber a hand-authored one.
+# SEED a generic enclave note into a FRESH enclave. Source is
+# SEVERANCE_ENCLAVE_MD (default: the package's generic, tool-agnostic note). The
+# enclave then OWNS its CLAUDE.md: we NEVER clobber an existing one (a project's
+# own guidance, or edits that de-generalize it, must survive). So this is
+# place-if-absent only, not a managed file.
 place_claude_md() {
   _src=${SEVERANCE_ENCLAVE_MD:-$SEVERANCE_SHARE/enclave/CLAUDE.md}
   [ -f "$_src" ] || return 0
   _dst=$WC_DIR/CLAUDE.md
-  if ! sudo test -e "$_dst"; then
-    sudo install -m 0644 -o root -g "$WC_GROUP" "$_src" "$_dst"
-    echo "severance: CLAUDE.md placed in $WC_DIR"
-  elif sudo head -n1 "$_dst" 2>/dev/null \
-       | grep -qE 'Managed by (severance|tackup)'; then
-    if sudo cmp -s "$_src" "$_dst"; then
-      echo "severance: CLAUDE.md current ($WC_PROFILE)"
-    else
-      sudo install -m 0644 -o root -g "$WC_GROUP" "$_src" "$_dst"
-      echo "severance: CLAUDE.md updated ($WC_PROFILE)"
-    fi
+  if sudo test -e "$_dst"; then
+    echo "severance: enclave CLAUDE.md present ($WC_PROFILE); left as-is"
   else
-    echo "severance: $_dst exists and is NOT managed; left as-is" >&2
+    sudo install -m 0644 -o root -g "$WC_GROUP" "$_src" "$_dst"
+    echo "severance: seeded enclave CLAUDE.md in $WC_DIR"
   fi
 }
 
@@ -274,14 +267,13 @@ _seal_check_one() {
     else _bad "gemini dir default other ACL not '---' (creds may leak)"; fi
   fi
 
-  _cmd=${SEVERANCE_ENCLAVE_MD:-$SEVERANCE_SHARE/enclave/CLAUDE.md}
-  if [ -f "$_cmd" ] && [ -d "$WC_DIR" ]; then
+  # The enclave OWNS its CLAUDE.md (seed-only); verify presence, never content.
+  if [ -d "$WC_DIR" ]; then
     _dst=$WC_DIR/CLAUDE.md
-    if sudo -n cmp -s "$_cmd" "$_dst" 2>/dev/null \
-       || cmp -s "$_cmd" "$_dst" 2>/dev/null; then
-      _ok "enclave CLAUDE.md current"
-    elif sudo -n test -e "$_dst" 2>/dev/null || [ -e "$_dst" ]; then
-      _bad "enclave CLAUDE.md stale or unmanaged (re-run apply)"
+    if sudo -n test -e "$_dst" 2>/dev/null || [ -e "$_dst" ]; then
+      _ok "enclave CLAUDE.md present (enclave-owned)"
+    elif sudo -n true 2>/dev/null; then
+      _ok "enclave CLAUDE.md absent (seeded on apply)"
     else
       _ok "enclave CLAUDE.md unverifiable here (need sudo cache/work group)"
     fi
