@@ -2,7 +2,7 @@
 # severance - the work/personal ZDR boundary as a standalone gadget: profile
 # records, the sealed kernel wall (2770 root:group tree + ACLs + git identity
 # split), and the per-enclave rootless-docker runner. Runs standalone (a box
-# with no tackup) or is driven by tackup as a thin delegator.
+# with no host) or driven by a host provisioner as a thin delegator.
 #
 #   severance seal   [profile...]      provision the boundary (privileged)
 #   severance runner [profile...]      provision the rootless-docker runner
@@ -10,7 +10,7 @@
 #
 # Self-locates its libexec/share beside the binary (through any install
 # symlink), like mux and valet-key. Idempotent; privileged verbs prompt sudo
-# once up front (a no-op when a cache is already warm, e.g. under tackup).
+# once up front (a no-op when a cache is already warm, e.g. under a host).
 set -eu
 
 _self=$0

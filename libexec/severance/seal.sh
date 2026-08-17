@@ -1,6 +1,6 @@
-# seal.sh - provision and audit the work boundary, PER PROFILE. Ported from
-# tackup's modules/work-guard (the mechanism is generic; tackup was only its
-# first driver). Sourced by bin/severance after common.sh.
+# seal.sh - provision and audit the work boundary, PER PROFILE. The mechanism is
+# generic (a host provisioner may drive it, or it runs standalone). Sourced by
+# bin/severance after common.sh.
 #
 # Reads the severance profiles and makes each enclave's boundary real:
 #   - the profile group exists (and the login user is NOT a permanent member)

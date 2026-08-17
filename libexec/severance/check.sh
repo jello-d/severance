@@ -1,6 +1,6 @@
 # check.sh - the marker-contract audit. `severance check [--seal|--runner]`
 # (bare = both) runs the ported audits and returns non-zero on drift, emitting
-# plain [OK]/[FAIL] lines that tackup's report.sh paint() recolours unchanged.
+# plain [OK]/[FAIL] lines that a host's marker painter recolours unchanged.
 sev_check() {
   _do_seal=0 _do_runner=0
   case "${1:-}" in

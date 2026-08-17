@@ -1,5 +1,5 @@
 # runner.sh - per-enclave rootless-DOCKER runtime: one runner account PER work
-# PROFILE. Ported from tackup's modules/runner. Sourced by bin/severance after
+# PROFILE. Sourced by bin/severance after
 # common.sh. Each runner is a locked service account whose LOGIN gid is that
 # profile's group, running rootless docker fronted by a socat relay on a
 # host-visible group-<group> socket. The account name is the profile's `runner`

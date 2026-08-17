@@ -2,10 +2,10 @@
 # bin/severance for the list / show / use / init verbs. The reader (sourced by
 # common.sh) provides WC_PROFILES_DIR, WC_DEFAULT_FILE, wc_profiles, wc_load.
 #
-# On a tackup-managed box the repo drives the active profile (foundation
-# publishes ~/.config/severance/default from self/work-context each run), so
-# `severance use` is authoritative on a STANDALONE box; on a managed box it is
-# transient (re-published on the next provision).
+# On a host-managed box the host may drive the active profile (publishing
+# ~/.config/severance/default from its own source each run), so `severance use`
+# is authoritative on a STANDALONE box; under such a host it is transient
+# (re-published on the next provision).
 
 _sev_config_dir() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/severance"; }
 

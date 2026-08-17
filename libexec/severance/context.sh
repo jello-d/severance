@@ -3,7 +3,7 @@
 #
 # valet-key reads its $VALET_KEY_CONFIG/context hook for this seam; the
 # published hook is a thin shim that execs us, so valet-key and severance meet
-# at one well-known path, no tackup in the loop -- each degrades to personal.
+# at one well-known path, no host in the loop -- each degrades to personal.
 # The reader (sourced by common.sh) provides wc_account and the WC_* vars; the
 # guard re-derives the group itself and never trusts the passed profile.
 #

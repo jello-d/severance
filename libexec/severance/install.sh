@@ -1,6 +1,6 @@
 # install.sh - the STANDALONE installer (`severance install` / `uninstall`).
 # Symlinks the package into ~/.local and wires the host integrations a
-# provisioner (like tackup) would otherwise provide: the git includeIf and the
+# provisioner (a host) would otherwise provide: the git includeIf and the
 # valet-key context shim. NEVER needed on a host-managed box -- a host already
 # symlinks the package and publishes the hooks -- so every host-owned step is
 # GUARDED (skips a managed symlink) and a stray run there is a safe no-op.
