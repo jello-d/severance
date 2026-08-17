@@ -159,7 +159,8 @@ place_claude_md() {
   if ! sudo test -e "$_dst"; then
     sudo install -m 0644 -o root -g "$WC_GROUP" "$_src" "$_dst"
     echo "severance: CLAUDE.md placed in $WC_DIR"
-  elif sudo head -n1 "$_dst" 2>/dev/null | grep -q 'Managed by tackup'; then
+  elif sudo head -n1 "$_dst" 2>/dev/null \
+       | grep -qE 'Managed by (severance|tackup)'; then
     if sudo cmp -s "$_src" "$_dst"; then
       echo "severance: CLAUDE.md current ($WC_PROFILE)"
     else

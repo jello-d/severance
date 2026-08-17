@@ -1,5 +1,5 @@
 [Unit]
-# tackup-owned (modules/runner). A socat forking relay that fronts the runner's
+# Managed by severance. A socat forking relay that fronts the runner's
 # internal rootless-docker socket with a host-visible, group-gated one. socat
 # (unlike systemd-socket-proxyd) carries the Docker API connection HIJACK, so
 # `docker exec -it`, attached `docker run`, and attached `compose up` work.
