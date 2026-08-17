@@ -34,7 +34,7 @@ _usage() {
 usage: severance <command> [args]
   install | uninstall        standalone: (un)link into ~/.local + host hooks
   list                       provisioned profiles (* marks the default)
-  show   [profile]           the resolved settings for a profile / the default
+  show   [profile] [--shell] the resolved settings (--shell: eval-able WC_*)
   use    <profile>|--clear   set (or clear) the default-profile marker
   init   <name> [key=val..]  scaffold a new profile record
   seal   [profile...]        provision the work boundary (privileged)
