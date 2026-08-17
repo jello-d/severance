@@ -39,7 +39,9 @@ usage: severance <command> [args]
   init   <name> [key=val..]  scaffold a new profile record
   seal   [profile...]        provision the work boundary (privileged)
   runner [profile...]        provision the rootless-docker runner (privileged)
-  check  [--seal|--runner]   audit; non-zero on drift (bare = both)
+  check  [--seal|--runner]   audit; non-zero on drift (bare = both + validate)
+  validate [profile]         lint profile records (before they provision)
+  doctor                     whole-boundary health (install + wall + runner)
 EOF
   exit 2
 }
@@ -55,8 +57,10 @@ case $cmd in
   init)    . "$LIBEXEC/profile.sh"; sev_init "$@" ;;
   seal)    sev_sudo_prime; . "$LIBEXEC/seal.sh";   sev_seal "$@" ;;
   runner)  sev_sudo_prime; . "$LIBEXEC/runner.sh"; sev_runner "$@" ;;
-  check)   . "$LIBEXEC/check.sh"; sev_check "$@" ;;
-  context) . "$LIBEXEC/context.sh"; sev_context "$@" ;;
+  check)    . "$LIBEXEC/check.sh"; sev_check "$@" ;;
+  validate) . "$LIBEXEC/validate.sh"; sev_validate "$@" ;;
+  doctor)   . "$LIBEXEC/doctor.sh"; sev_doctor "$@" ;;
+  context)  . "$LIBEXEC/context.sh"; sev_context "$@" ;;
   ''|-h|--help|help) _usage ;;
   *) echo "severance: unknown command: $cmd" >&2; _usage ;;
 esac

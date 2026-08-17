@@ -67,5 +67,11 @@ sev_init() {
     printf 'claude_config=~/.claude-%s\n' "$_name"
     for _kv in "$@"; do printf '%s\n' "$_kv"; done
   } > "$_f"
-  echo "severance: wrote $_f (edit to taste)"
+  echo "severance: wrote $_f"
+  # Validate the scaffold parses + is sane, then point at the next steps.
+  . "$LIBEXEC/validate.sh"
+  _validate_record "$_name"
+  echo "severance: edit it (work_group, work_dir, claude_config), then:"
+  echo "  severance seal        # provision the wall"
+  echo "  severance runner      # provision the rootless-docker runner"
 }
