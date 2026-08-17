@@ -32,6 +32,7 @@ export SEVERANCE_SHARE
 _usage() {
   cat >&2 <<'EOF'
 usage: severance <command> [args]
+  install | uninstall        standalone: (un)link into ~/.local + host hooks
   list                       provisioned profiles (* marks the default)
   show   [profile]           the resolved settings for a profile / the default
   use    <profile>|--clear   set (or clear) the default-profile marker
@@ -46,6 +47,8 @@ EOF
 cmd=${1:-}
 [ "$#" -gt 0 ] && shift
 case $cmd in
+  install)   . "$LIBEXEC/install.sh"; sev_install "$@" ;;
+  uninstall) . "$LIBEXEC/install.sh"; sev_uninstall "$@" ;;
   list)    . "$LIBEXEC/profile.sh"; sev_list "$@" ;;
   show)    . "$LIBEXEC/profile.sh"; sev_show "$@" ;;
   use)     . "$LIBEXEC/profile.sh"; sev_use "$@" ;;
