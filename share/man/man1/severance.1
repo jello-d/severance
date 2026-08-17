@@ -1,0 +1,88 @@
+.TH SEVERANCE 1 "2026-08" "severance" "User Commands"
+.SH NAME
+severance \- kernel-enforced work/personal boundary
+.SH SYNOPSIS
+.B severance
+.I command
+.RI [ args ]
+.br
+.B work
+.RI [ profile ]
+.RI [ command ...]
+.SH DESCRIPTION
+.B severance
+provisions and audits a kernel-enforced boundary between confidential
+(zero-data-retention) work and everything else on a single machine. Each
+confidential context is a
+.I profile
+(an enclave): a Unix group, a sealed work tree owned
+.BR root:<group> " mode " 2770
+with a default ACL, and a matching account. A personal process, lacking the
+group, is denied entry by the filesystem, not by convention.
+.PP
+.B work
+enters an enclave: it acquires the group for the session via a human
+.BR sudo (8)
+prompt and runs a shell (or one command) with the enclave's account and
+environment. Nothing persists.
+.SH COMMANDS
+.TP
+.B install \fR/\fB uninstall
+Standalone only: symlink the package into
+.I ~/.local
+and wire the git includeIf and the valet-key context shim (or remove them). A
+guarded no-op under a host that already manages those.
+.TP
+.B list
+List provisioned profiles;
+.B *
+marks the resolved default.
+.TP
+.BI show " [profile]"
+Print the resolved settings for a profile (or the default).
+.TP
+.BI use " profile" "\fR|\fB --clear"
+Set (or clear) the default-profile marker.
+.TP
+.BI init " name " [key=val ...]
+Scaffold a new profile record under
+.IR ~/.config/severance/profiles/ .
+.TP
+.BI seal " [profile...]"
+Provision the boundary (group, sealed tree + ACLs, git identity). Privileged.
+.TP
+.BI runner " [profile...]"
+Provision the per-enclave rootless-docker runner. Privileged.
+.TP
+.BR check " [" \-\-seal | \-\-runner ]
+Audit the live boundary; non-zero on drift. Bare checks both.
+.TP
+.BR context " " resolve | guard
+The valet-key discovery seam (resolve the active account; refuse a personal
+account inside the work tree).
+.SH FILES
+.TP
+.I ~/.config/severance/profiles/<name>
+Profile records (key=value).
+.TP
+.I ~/.config/severance/default
+The active-profile marker (written by
+.BR "severance use" ).
+.TP
+.I ~/.config/git/work-context.gen
+The generated git identity fragment.
+.SH ENVIRONMENT
+.TP
+.B WORK_PROFILE
+Select a profile (overridden by an explicit argument).
+.TP
+.B SEVERANCE_PROFILES_DIR
+Override the profiles directory (a host points this at its records).
+.SH NOTES
+The wall is the kernel. Permission lists and git config are not the boundary and
+must not be relied on for it. The enclave group is transient: the login user is
+never a permanent member. Entering the enclave is always a human sudo prompt.
+.SH SEE ALSO
+.BR sudo (8),
+.BR setfacl (1),
+.BR git-config (1)
