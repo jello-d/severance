@@ -51,6 +51,13 @@ With several profiles, mark the active one:
     severance use work                  # set the default
     work otherjob                       # or name one explicitly
 
+Health, and tearing one down:
+
+    severance doctor                    # whole-boundary health, one report
+    severance validate                  # lint records before provisioning
+    severance forget work               # tear down a profile's runner
+    severance forget work --purge       # ...also drop the record (tree stays)
+
 ## Profile record
 
 `~/.config/severance/profiles/<name>`, one `key=value` per line:

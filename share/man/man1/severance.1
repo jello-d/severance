@@ -54,8 +54,23 @@ Provision the boundary (group, sealed tree + ACLs, git identity). Privileged.
 .BI runner " [profile...]"
 Provision the per-enclave rootless-docker runner. Privileged.
 .TP
+.BI forget " profile " \fR[ \fB\-\-purge \fR]
+Decommission a profile: tear down its runner (reversible). With
+.B \-\-purge
+also remove the record and regenerate the git fragment; the work tree is left
+sealed. Privileged.
+.TP
 .BR check " [" \-\-seal | \-\-runner ]
-Audit the live boundary; non-zero on drift. Bare checks both.
+Audit the live boundary; non-zero on drift. Bare checks both and validates the
+records.
+.TP
+.BI validate " [profile]"
+Lint profile records (parse, valid group, work_dir a subdir) before they
+provision.
+.TP
+.B doctor
+Whole-boundary health in one report: installation, records, integrations
+(git includeIf, valet-key shim), and the live wall + runner.
 .TP
 .BR context " " resolve | guard
 The valet-key discovery seam (resolve the active account; refuse a personal
