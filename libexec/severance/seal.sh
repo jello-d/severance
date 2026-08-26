@@ -229,6 +229,33 @@ sev_seal() {
   echo "severance: seal done"
 }
 
+# Audit a sealed identity dir that now lives INSIDE the gate (gcloud/gemini
+# under WORK_HOME/.config): a plain login-user check cannot stat it, so try
+# sudo -n and report UNVERIFIABLE rather than SILENTLY DROPPING the verdict (the
+# blind spot when these moved behind the gate). <label> <dir>.
+_check_sealed_dir() {
+  _cl=$1 _cd=$2
+  _co=$(sudo -n stat -c '%U:%G' "$_cd" 2>/dev/null \
+        || stat -c '%U:%G' "$_cd" 2>/dev/null || echo '')
+  if [ -z "$_co" ]; then
+    if sudo -n true 2>/dev/null; then
+      _ok "$_cl dir absent (sealed on apply)"      # can sudo, so truly absent
+    else _ok "$_cl dir unverifiable here (need sudo cache/work group)"; fi
+    return 0
+  fi
+  _cm=$(sudo -n stat -c '%a' "$_cd" 2>/dev/null \
+        || stat -c '%a' "$_cd" 2>/dev/null || echo '?')
+  _ca=$(sudo -n getfacl -p "$_cd" 2>/dev/null \
+        || getfacl -p "$_cd" 2>/dev/null || true)
+  if [ "$_co" = "root:$WC_GROUP" ]; then _ok "$_cl dir owner root:$WC_GROUP"
+  else _bad "$_cl dir owner $_co, want root:$WC_GROUP"; fi
+  if [ "$_cm" = 2770 ]; then _ok "$_cl dir mode 2770 (personal denied)"
+  else _bad "$_cl dir mode ${_cm:-?}, want 2770"; fi
+  if printf '%s\n' "$_ca" | grep -q "^default:other::---"; then
+    _ok "$_cl dir default other ACL denies new entries"
+  else _bad "$_cl dir default other ACL not '---' (creds may leak)"; fi
+}
+
 _seal_check_one() {
   echo "-- $WC_LABEL (group $WC_GROUP) --"
   if getent group "$WC_GROUP" >/dev/null 2>&1; then
@@ -275,33 +302,8 @@ _seal_check_one() {
     else _ok "config root .config unverifiable here (need sudo cache/group)"; fi
   fi
 
-  _gc=$(_gcloud_dir)
-  if command -v gcloud >/dev/null 2>&1 && [ -d "$_gc" ]; then
-    _go=$(stat -c '%U:%G' "$_gc" 2>/dev/null || echo '?')
-    _gm=$(stat -c '%a' "$_gc" 2>/dev/null || echo '?')
-    _ga=$(getfacl -p "$_gc" 2>/dev/null || true)
-    if [ "$_go" = "root:$WC_GROUP" ]; then _ok "gcloud dir owner root:$WC_GROUP"
-    else _bad "gcloud dir owner $_go, want root:$WC_GROUP"; fi
-    if [ "$_gm" = 2770 ]; then _ok "gcloud dir mode 2770 (personal denied)"
-    else _bad "gcloud dir mode ${_gm:-?}, want 2770"; fi
-    if printf '%s\n' "$_ga" | grep -q "^default:other::---"; then
-      _ok "gcloud dir default other ACL denies new entries"
-    else _bad "gcloud dir default other ACL not '---' (creds may leak)"; fi
-  fi
-
-  _ge=$(_gemini_dir)
-  if command -v gemini >/dev/null 2>&1 && [ -d "$_ge" ]; then
-    _eo=$(stat -c '%U:%G' "$_ge" 2>/dev/null || echo '?')
-    _em=$(stat -c '%a' "$_ge" 2>/dev/null || echo '?')
-    _ea=$(getfacl -p "$_ge" 2>/dev/null || true)
-    if [ "$_eo" = "root:$WC_GROUP" ]; then _ok "gemini dir owner root:$WC_GROUP"
-    else _bad "gemini dir owner $_eo, want root:$WC_GROUP"; fi
-    if [ "$_em" = 2770 ]; then _ok "gemini dir mode 2770 (personal denied)"
-    else _bad "gemini dir mode ${_em:-?}, want 2770"; fi
-    if printf '%s\n' "$_ea" | grep -q "^default:other::---"; then
-      _ok "gemini dir default other ACL denies new entries"
-    else _bad "gemini dir default other ACL not '---' (creds may leak)"; fi
-  fi
+  command -v gcloud >/dev/null 2>&1 && _check_sealed_dir gcloud "$(_gcloud_dir)"
+  command -v gemini >/dev/null 2>&1 && _check_sealed_dir gemini "$(_gemini_dir)"
 
   # The enclave OWNS its CLAUDE.md (seed-only); verify presence, never content.
   if [ -d "$WC_DIR" ]; then
