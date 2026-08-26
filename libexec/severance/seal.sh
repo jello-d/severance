@@ -148,6 +148,16 @@ seal_gemini_home() {
   _seal_identity_dir "$(_gemini_dir)"
 }
 
+# The sealed per-enclave CONFIG ROOT: WORK_HOME/.config (WORK_HOME = work_dir).
+# Per-tool work state -- agent configs, the valet-key work pool, the corp
+# creds -- migrates under here so ONE seal (the work_dir gate) protects every
+# credential store, not N scattered dirs. Sealed explicitly (belt-and-braces);
+# the gate's traversal denial is what actually keeps a same-uid personal process
+# out, so inner state stays safe whatever its owner. See docs/work-home.md.
+# Test-override.
+_workhome_config() { echo "${WORKHOME_CONFIG:-$WC_DIR/.config}"; }
+seal_workhome_config() { _seal_identity_dir "$(_workhome_config)"; }
+
 # SEED a generic enclave note into a FRESH enclave. Source is
 # SEVERANCE_ENCLAVE_MD (default: the package's generic, tool-agnostic note). The
 # enclave then OWNS its CLAUDE.md: we NEVER clobber an existing one (a project's
@@ -184,6 +194,7 @@ _guard_one() {
   sudo chmod 2770 "$WC_DIR"
   sudo setfacl -d -m g:"$WC_GROUP":rwX -m o::--- "$WC_DIR"
   echo "severance: work_dir gate sealed (root:$WC_GROUP 2770 + default ACL)"
+  seal_workhome_config
   place_claude_md
   seal_gcloud_work
   seal_gemini_home
@@ -238,6 +249,26 @@ _seal_check_one() {
       _ok "work_dir default other ACL denies new entries"
     else _bad "work_dir default other ACL not '---' (new entries may leak)"; fi
   else _ok "work_dir $WC_DIR absent (nothing to seal yet)"; fi
+
+  # The sealed config root WORK_HOME/.config sits INSIDE the gate, so a plain
+  # personal process cannot stat it (needs the sudo cache or the work group);
+  # report unverifiable rather than crying false drift. See docs/work-home.md.
+  if [ -d "$WC_DIR" ]; then
+    _wc=$(_workhome_config)
+    _wo=$(sudo -n stat -c '%U:%G' "$_wc" 2>/dev/null \
+          || stat -c '%U:%G' "$_wc" 2>/dev/null || echo '')
+    _wm=$(sudo -n stat -c '%a' "$_wc" 2>/dev/null \
+          || stat -c '%a' "$_wc" 2>/dev/null || echo '')
+    if [ -n "$_wo" ]; then
+      if [ "$_wo" = "root:$WC_GROUP" ] && [ "$_wm" = 2770 ]; then
+        _ok "config root .config sealed (root:$WC_GROUP 2770)"
+      else
+        _bad "config root .config $_wo mode $_wm, want root:$WC_GROUP 2770"
+      fi
+    elif sudo -n true 2>/dev/null; then
+      _bad "config root $_wc absent (re-run apply)"
+    else _ok "config root .config unverifiable here (need sudo cache/group)"; fi
+  fi
 
   _gc=$(_gcloud_dir)
   if command -v gcloud >/dev/null 2>&1 && [ -d "$_gc" ]; then
