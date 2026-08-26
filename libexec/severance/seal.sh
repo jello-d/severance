@@ -135,7 +135,12 @@ seal_service_overlay() {
 _seal_identity_dir() {   # <dir>
   sudo mkdir -p "$1"
   sudo chown "root:$WC_GROUP" "$1"
-  sudo chmod 2770 "$1"
+  # 0-PREFIXED on purpose: for a DIRECTORY, coreutils chmod PRESERVES inherited
+  # setuid/setgid bits under a bare numeric mode, so `chmod 2770` on a dir made
+  # inside a setgid parent (a .config under the setgid gate) keeps the inherited
+  # setuid -> 6770. The explicit leading zero clears the high bits, so every
+  # sealed dir is canonically 2770 whatever its parent. (Symbolic u-s works.)
+  sudo chmod 02770 "$1"
   sudo setfacl -d -m g:"$WC_GROUP":rwX -m o::--- "$1"
   echo "severance: $1 sealed (root:$WC_GROUP 2770 + default ACL)"
 }
@@ -191,7 +196,7 @@ _guard_one() {
   # dev to own (their pnpm/git chmod their own files).
   sudo mkdir -p "$WC_DIR"
   sudo chown "root:$WC_GROUP" "$WC_DIR"
-  sudo chmod 2770 "$WC_DIR"
+  sudo chmod 02770 "$WC_DIR"   # 0-prefixed: clear inherited setuid (see above)
   sudo setfacl -d -m g:"$WC_GROUP":rwX -m o::--- "$WC_DIR"
   echo "severance: work_dir gate sealed (root:$WC_GROUP 2770 + default ACL)"
   seal_workhome_config
