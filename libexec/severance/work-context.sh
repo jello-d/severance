@@ -18,8 +18,11 @@
 # After a successful wc_load:
 #   WC_PROFILE WC_LABEL WC_GROUP WC_DIR WC_CLAUDE_CONFIG WC_GIT_REMOTE_GLOB
 #   WC_RUNNER WC_ENCLAVE_PERSONAL WC_SERVICE_USER WC_SERVICE_OVERLAY
-#   WC_SERVICE_OVERLAY_WRITE
+#   WC_SERVICE_OVERLAY_WRITE WC_CONFIG_ROOT
 # WC_RUNNER defaults to <label>-runner when the record omits `runner`.
+# WC_CONFIG_ROOT is WORK_HOME/.config (= WC_DIR/.config); per-tool work dirs
+# derive as $WC_CONFIG_ROOT/<tool>, and WC_CLAUDE_CONFIG derives from it unless
+# the record sets claude_config. See docs/work-home.md.
 
 WC_PROFILES_DIR=${WC_PROFILES_DIR:-$HOME/.config/severance/profiles}
 WC_PERSONAL_DIR=${WC_PERSONAL_DIR:-$HOME/.claude}   # the fixed personal base
@@ -80,7 +83,7 @@ _wc_resolve() {   # [name]
 wc_load() {   # [name]
   WC_PROFILE= WC_LABEL= WC_GROUP= WC_DIR= WC_CLAUDE_CONFIG= WC_GIT_REMOTE_GLOB=
   WC_RUNNER= WC_ENCLAVE_PERSONAL= WC_SERVICE_USER= WC_SERVICE_OVERLAY=
-  WC_SERVICE_OVERLAY_WRITE=
+  WC_SERVICE_OVERLAY_WRITE= WC_CONFIG_ROOT=
   _cfg=$(_wc_resolve "${1:-}") || return $?
   WC_PROFILE=${_cfg##*/}
   while IFS='=' read -r k v; do
@@ -104,8 +107,12 @@ wc_load() {   # [name]
     echo "work-context: missing work_group ($_cfg)" >&2; return 3; }
   [ -n "$WC_DIR" ] || {
     echo "work-context: missing work_dir ($_cfg)" >&2; return 3; }
-  [ -n "$WC_CLAUDE_CONFIG" ] || {
-    echo "work-context: missing claude_config ($_cfg)" >&2; return 3; }
+  # The per-enclave config root is WORK_HOME/.config (WORK_HOME = work_dir): all
+  # work credential stores live under it, behind the work_dir gate, so ONE seal
+  # protects them. Every per-tool dir derives as $WC_CONFIG_ROOT/<tool>;
+  # claude_config derives too unless overridden. See docs/work-home.md.
+  WC_CONFIG_ROOT=$WC_DIR/.config
+  [ -n "$WC_CLAUDE_CONFIG" ] || WC_CLAUDE_CONFIG=$WC_CONFIG_ROOT/claude
   [ -n "$WC_RUNNER" ] || WC_RUNNER=${WC_LABEL:-$WC_PROFILE}-runner
   return 0
 }

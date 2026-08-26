@@ -129,6 +129,20 @@ export CLAUDE_CONFIG_DIR="$WC_CLAUDE_CONFIG"
 export WORK_CONTEXT="$LABEL"
 unset ANTHROPIC_API_KEY
 
+# WORK_HOME: the sealed enclave root (= work_dir). Point every work-scoped tool
+# at its dir UNDER it, so all work credential stores live behind the ONE gate
+# (docs/work-home.md). These are EXPLICIT, per-tool overrides ONLY -- we do NOT
+# set HOME or XDG_CONFIG_HOME (never hijack an implicitly-resolved var; that
+# would silently over-capture personal config). CLAUDE_CONFIG_DIR above is the
+# derived WC_CLAUDE_CONFIG ($WC_CONFIG_ROOT/claude). The valet-key pool root is
+# the load-bearing one: it puts every work agent's credential slots inside the
+# seal. GEMINI_CLI_HOME/CODEX_HOME name the per-tool base (valet-key overrides
+# them per slot at launch); a bare invocation falls back to the base.
+export WORK_HOME="$WC_DIR"
+export VALET_KEY_POOL_ROOT="$WC_CONFIG_ROOT/valet-key-pool"
+export GEMINI_CLI_HOME="$WC_CONFIG_ROOT/gemini"   # gemini appends /.gemini
+export CODEX_HOME="$WC_CONFIG_ROOT/codex"
+
 # Point docker at THIS enclave's rootless-docker runner socket (the runner:
 # /run/<runner>/docker.sock, group <group> 0660 -- a work session reaches it by
 # group, a personal process gets EACCES). Without this, `docker` in a work

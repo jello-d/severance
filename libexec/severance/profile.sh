@@ -39,9 +39,10 @@ sev_show() {
     echo "severance: no profile resolves" >&2; return 1
   fi
   if [ "$_shell" = 1 ]; then
-    for _v in WC_PROFILE WC_LABEL WC_GROUP WC_DIR WC_CLAUDE_CONFIG \
-              WC_GIT_REMOTE_GLOB WC_RUNNER WC_ENCLAVE_PERSONAL \
-              WC_SERVICE_USER WC_SERVICE_OVERLAY WC_SERVICE_OVERLAY_WRITE; do
+    for _v in WC_PROFILE WC_LABEL WC_GROUP WC_DIR WC_CONFIG_ROOT \
+              WC_CLAUDE_CONFIG WC_GIT_REMOTE_GLOB WC_RUNNER \
+              WC_ENCLAVE_PERSONAL WC_SERVICE_USER WC_SERVICE_OVERLAY \
+              WC_SERVICE_OVERLAY_WRITE; do
       eval "_val=\${$_v-}"
       printf '%s=%s\n' "$_v" "$(_sev_shq "$_val")"
     done

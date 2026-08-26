@@ -22,14 +22,14 @@ SUDOERS=${SUDOERS:-/etc/sudoers.d/work-guard}   # legacy grant, removed if found
 GIT_GEN=${GIT_GEN:-$HOME/.config/git/work-context.gen}
 SCAN_ROOT=${SCAN_ROOT:-$HOME/src}
 
-# The WORK corp-Google identity dirs, keyed on the profile group (manifest's
-# group `manifest` -> ~/.config/{gcloud,gemini}-manifest, matching valet-key's
-# adapters). Sealed like the work_dir gate so corp creds are kernel-protected,
-# not merely env-selected. gemini's GEMINI_CLI_HOME points at its dir
-# (valet-key's
-# dirs override) and stores .gemini/ inside, inheriting the seal. Test-override.
-_gcloud_dir() { echo "${GCLOUD_WORK:-$HOME/.config/gcloud-$WC_GROUP}"; }
-_gemini_dir() { echo "${GEMINI_WORK:-$HOME/.config/gemini-$WC_GROUP}"; }
+# The WORK corp-Google identity dirs, folded UNDER the enclave config root
+# (WORK_HOME/.config/{gcloud,gemini}) so all work credential stores share the
+# one work_dir-gate seal instead of N scattered ~/.config/*-<group> dirs
+# (docs/work-home.md). Still explicitly sealed (belt-and-braces). gemini's
+# GEMINI_CLI_HOME points at its dir (valet-key's dirs override) and stores
+# .gemini/ inside, inheriting the seal. Test-override: GCLOUD_WORK/GEMINI_WORK.
+_gcloud_dir() { echo "${GCLOUD_WORK:-$WC_DIR/.config/gcloud}"; }
+_gemini_dir() { echo "${GEMINI_WORK:-$WC_DIR/.config/gemini}"; }
 
 # The login user must NOT be a permanent group member (the transient invariant).
 _permanent_member() {
