@@ -72,11 +72,11 @@ sev_install() {
   for _b in "$_root"/bin/*; do
     [ -e "$_b" ] && _sev_ln "$_b" "$_bin/$(basename "$_b")"
   done
-  [ -d "$_root/libexec/severance" ] \
-    && _sev_ln "$_root/libexec/severance" "$(_sev_libdir)/severance"
-  [ -d "$_root/share/severance" ] \
-    && _sev_ln "$_root/share/severance" "$(_sev_shrdir)/severance"
-  for _m in "$_root"/share/man/man*/*.[0-9]; do
+  [ -d "$_root/libexec" ] \
+    && _sev_ln "$_root/libexec" "$(_sev_libdir)/severance"
+  [ -d "$_root/share" ] \
+    && _sev_ln "$_root/share" "$(_sev_shrdir)/severance"
+  for _m in "$_root"/man/man*/*.[0-9]; do
     [ -e "$_m" ] || continue
     _sec=$(basename "$(dirname "$_m")")
     _sev_ln "$_m" "$(_sev_shrdir)/man/$_sec/$(basename "$_m")"

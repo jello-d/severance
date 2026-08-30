@@ -30,7 +30,7 @@ _real=$(readlink -f -- "$self" 2>/dev/null || printf '%s\n' "$self")
 wc_lib=
 for _cand in \
   "${SEVERANCE_LIB:-}" \
-  "${_real%/*}/../libexec/severance/work-context.sh" \
+  "${_real%/*}/../libexec/work-context.sh" \
   "$HOME/.local/libexec/severance/work-context.sh" \
   "$HOME/lib/work/work-context.sh"; do
   if [ -n "$_cand" ] && [ -r "$_cand" ]; then wc_lib=$_cand; break; fi

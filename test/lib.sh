@@ -1,7 +1,7 @@
 # test/lib.sh - harness for severance's shell tests (test/*.t), sourced by each.
 #
 # Call `harness_init <name>`: sets HERE (the repo root, so a test reaches
-# libexec/severance/<lib>.sh and bin/severance), a private scratch dir T
+# libexec/<lib>.sh and bin/severance), a private scratch dir T
 # (removed on exit), and pass/fail. Pure string logic; nothing outside T is
 # touched. POSIX sh; run one with `sh test/<name>.t` or all with test/run.
 harness_init() {   # <name>

@@ -21,8 +21,8 @@ esac
 SEVERANCE_SELF=$(readlink -f -- "$_self" 2>/dev/null || printf '%s\n' "$_self")
 export SEVERANCE_SELF
 _bindir=${SEVERANCE_SELF%/*}
-LIBEXEC=$_bindir/../libexec/severance
-SEVERANCE_SHARE=${SEVERANCE_SHARE:-$_bindir/../share/severance}
+LIBEXEC=$_bindir/../libexec
+SEVERANCE_SHARE=${SEVERANCE_SHARE:-$_bindir/../share}
 export SEVERANCE_SHARE
 
 [ -r "$LIBEXEC/common.sh" ] ||

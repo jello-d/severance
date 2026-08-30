@@ -81,9 +81,9 @@ Health, and tearing one down:
 
     bin/severance       management + provisioning CLI (self-locating)
     bin/work            the enclave-entry command
-    libexec/severance/  the implementation (work-context reader, seal, runner,
+    libexec/  the implementation (work-context reader, seal, runner,
                         check, context seam, profile mgmt, installer)
-    share/severance/    the generic enclave note + the runner relay unit
+    share/    the generic enclave note + the runner relay unit
 
 ## Safety notes
 

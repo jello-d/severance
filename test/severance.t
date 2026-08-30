@@ -14,9 +14,9 @@ set -eu
 harness_init severance
 
 SEVROOT=$HERE
-WCLIB=$SEVROOT/libexec/severance/work-context.sh
-SEAL=$SEVROOT/libexec/severance/seal.sh
-RUNNER=$SEVROOT/libexec/severance/runner.sh
+WCLIB=$SEVROOT/libexec/work-context.sh
+SEAL=$SEVROOT/libexec/seal.sh
+RUNNER=$SEVROOT/libexec/runner.sh
 SEV=$SEVROOT/bin/severance
 
 # ============================ SEAL ==========================================
