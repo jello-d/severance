@@ -93,3 +93,10 @@ Health, and tearing one down:
   only a per-session one. `severance check` refuses if that is violated.
 - Entering the enclave is always a human sudo prompt. There is deliberately no
   passwordless `work`.
+
+## Development
+
+An 80-column limit is enforced by a tracked pre-commit hook. Enable it once
+per clone:
+
+    git config core.hooksPath .githooks
