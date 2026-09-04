@@ -69,6 +69,17 @@ audit_repos() {
   [ -d "$SCAN_ROOT" ] || return 0
   find "$SCAN_ROOT" -type d -name .git 2>/dev/null | while IFS= read -r g; do
     repo=${g%/.git}
+    # SKIP severance's own config root (work_dir/.config). That tree is TOOL
+    # STATE this design put inside the seal on purpose, not source anyone
+    # placed across the boundary, and tools keep git-backed caches in it --
+    # claude's plugin marketplaces clone a public repo there today, gemini and
+    # codex plausibly tomorrow. Each would report as a personal repo in the
+    # work tree and each would be wrong.
+    #
+    # Structural, not a per-profile carve-out: enclave_personal exists for
+    # SOURCE trees a human deliberately kept in the enclave, and listing a
+    # derived path there would make every profile repeat the same exception.
+    case "$repo/" in "$WC_CONFIG_ROOT"/*) continue ;; esac
     url=$(git -C "$repo" config --get remote.origin.url 2>/dev/null || true)
     case "$url" in $WC_GIT_REMOTE_GLOB) is_work=1 ;; *) is_work=0 ;; esac
     case "$repo/" in "$WC_DIR"/*) in_tree=1 ;; *) in_tree=0 ;; esac

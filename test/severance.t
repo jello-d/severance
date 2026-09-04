@@ -47,8 +47,12 @@ mkrepo "$WT"        git@gh:acme/work-thing.git   # work-remote, in work_dir OK
 mkrepo "$WT/nested" git@gh:me/personal.git       # personal-remote INSIDE  bad
 mkrepo "$S/stray"   git@gh:acme/work-other.git   # work-remote OUTSIDE     bad
 mkrepo "$S/mine"    git@gh:me/hobby.git          # personal outside        OK
+# TOOL STATE under the enclave's own config root: a git-backed cache a tool
+# made (claude's plugin marketplace), not source placed across the boundary.
+mkrepo "$WT/.config/claude/plugins/marketplaces/official" git@gh:anth/plugins
 audit() {
   env -i PATH="/usr/bin:/bin" WC_DIR="$WT" WC_GIT_REMOTE_GLOB='*work*' \
+    WC_CONFIG_ROOT="$WT/.config" \
     WC_ENCLAVE_PERSONAL="$1" SCAN_ROOT="$S" sh -c "$eo
 $ar
 audit_repos"
@@ -58,6 +62,12 @@ echo "$find_out" | grep -q "work-remote repo outside work_dir: $S/stray" \
   || fail "audit_repos: missed a work repo outside work_dir"
 echo "$find_out" | grep -q "personal-remote repo inside work_dir: $WT/nested" \
   || fail "audit_repos: missed a personal repo inside work_dir"
+# The config root is skipped STRUCTURALLY, with no carve-out configured: it is
+# severance's own derived tree, so every profile would otherwise have to repeat
+# the same exception, and every tool that caches a repo there would trip it.
+echo "$find_out" | grep -q "$WT/.config" \
+  && fail "audit_repos: flagged tool state under the enclave config root"
+
 allow_out=$(audit 'nested')
 echo "$allow_out" | grep -q "personal-remote repo inside work_dir: $WT/nested" \
   && fail "audit_repos: flagged a sanctioned enclave-personal repo"
