@@ -71,9 +71,10 @@ sev_use() {
   echo "severance: default profile = $1"
 }
 
-# Write a new profile record from a name + optional key=val pairs. The three
-# required keys (work_group, work_dir, claude_config) are stubbed for editing
-# when not supplied, so `wc_load` fails loud until they are filled in.
+# Write a new profile record from a name + optional key=val pairs. work_dir is
+# stubbed for editing when not supplied, so `wc_load` fails loud until it is
+# filled in. work_group is NOT written: it derives from the profile name, and
+# scaffolding it would re-introduce the second copy that can drift.
 sev_init() {
   _name=${1:-}
   [ -n "$_name" ] || {
@@ -87,16 +88,14 @@ sev_init() {
   {
     printf '# severance profile: %s\n' "$_name"
     printf 'label=%s\n' "$_name"
-    printf 'work_group=%s\n' "$_name"
     printf 'work_dir=~/src/%s\n' "$_name"
-    printf 'claude_config=~/.claude-%s\n' "$_name"
     for _kv in "$@"; do printf '%s\n' "$_kv"; done
   } > "$_f"
   echo "severance: wrote $_f"
   # Validate the scaffold parses + is sane, then point at the next steps.
   . "$LIBEXEC/validate.sh"
   _validate_record "$_name"
-  echo "severance: edit it (work_group, work_dir, claude_config), then:"
+  echo "severance: edit it (work_dir), then:"
   echo "  severance seal        # provision the wall"
   echo "  severance runner      # provision the rootless-docker runner"
 }

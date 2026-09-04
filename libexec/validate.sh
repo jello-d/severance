@@ -11,9 +11,13 @@ _validate_record() {   # <profile>
     _bad "$1: record does not parse (unknown key or missing required field)"
     return
   fi
+  # work_group derives from the profile name unless the record overrides it.
+  # A divergence is legal (a profile name need not be a legal group name) but
+  # it means the enclave has two names, so surface it rather than hide it.
   case "$WC_GROUP" in
     ''|*[!a-z0-9_-]*) _bad "$1: work_group '$WC_GROUP' is not a valid group" ;;
-    *)               _ok  "$1: work_group '$WC_GROUP'" ;;
+    "$1")             _ok  "$1: work_group '$WC_GROUP'" ;;
+    *) _warn "$1: work_group '$WC_GROUP' differs from the profile name" ;;
   esac
   case "$WC_DIR" in
     "$HOME"|"$HOME"/|/|'') _bad "$1: work_dir '$WC_DIR' too broad" ;;

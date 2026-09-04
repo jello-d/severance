@@ -19,6 +19,7 @@
 #   WC_PROFILE WC_LABEL WC_GROUP WC_DIR WC_CLAUDE_CONFIG WC_GIT_REMOTE_GLOB
 #   WC_RUNNER WC_ENCLAVE_PERSONAL WC_SERVICE_USER WC_SERVICE_OVERLAY
 #   WC_SERVICE_OVERLAY_WRITE WC_CONFIG_ROOT
+# WC_GROUP defaults to the PROFILE NAME when the record omits `work_group`.
 # WC_RUNNER defaults to <label>-runner when the record omits `runner`.
 # WC_CONFIG_ROOT is WORK_HOME/.config (= WC_DIR/.config); per-tool work dirs
 # derive as $WC_CONFIG_ROOT/<tool>, and WC_CLAUDE_CONFIG derives from it unless
@@ -103,8 +104,12 @@ wc_load() {   # [name]
       *) echo "work-context: unknown key: $k ($_cfg)" >&2; return 2 ;;
     esac
   done < "$_cfg"
-  [ -n "$WC_GROUP" ] || {
-    echo "work-context: missing work_group ($_cfg)" >&2; return 3; }
+  # work_group DERIVES from the profile name, so the enclave has ONE name
+  # rather than the same name stored twice where the two can drift. The key
+  # remains an override, because a profile name is a filename while a group
+  # name is constrained ([a-z0-9_-]), so a legal profile name is not always a
+  # legal group name. `severance validate` warns when the two differ.
+  [ -n "$WC_GROUP" ] || WC_GROUP=$WC_PROFILE
   [ -n "$WC_DIR" ] || {
     echo "work-context: missing work_dir ($_cfg)" >&2; return 3; }
   # The per-enclave config root is WORK_HOME/.config (WORK_HOME = work_dir): all

@@ -36,7 +36,7 @@ guarded no-op. `severance uninstall` removes the links.
 ## Use
 
     severance init work                 # scaffold a profile record
-    $EDITOR ~/.config/severance/profiles/work   # set work_group, work_dir, ...
+    $EDITOR ~/.config/severance/profiles/work   # set work_dir, ...
     severance seal                      # provision the wall (prompts for sudo)
     severance runner                    # provision the rootless-docker runner
     severance check                     # audit; non-zero on drift
@@ -65,12 +65,19 @@ Health, and tearing one down:
 `~/.config/severance/profiles/<name>`, one `key=value` per line:
 
     label=work
-    work_group=work
     work_dir=~/src/work
-    claude_config=~/.claude-work        # per-account agent config dir
+    work_group=work                     # optional (default: the profile name)
+    claude_config=~/.claude-work        # optional: default is inside the seal,
+                                        #   at <work_dir>/.config/claude
     git_remote_glob=*work*              # optional: repo-consistency audit
     runner=work-runner                  # optional (default <label>-runner)
     enclave_personal=carveout/*         # optional: sanctioned personal subtrees
+
+`work_group` derives from the profile name, so an enclave has ONE name rather
+than the same name stored twice where the two can drift. Set the key only when
+the profile name is not a legal group name (`[a-z0-9_-]`); `severance validate`
+warns when the two differ. Likewise `claude_config` derives from `work_dir`, so
+the work account lands behind the same gate as everything else.
 
 ## Integrations
 

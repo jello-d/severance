@@ -19,6 +19,7 @@ harness_init work
 
 WORK=$HERE/bin/work
 WCLIB=$HERE/libexec/work-context.sh
+SEV=$HERE/bin/severance
 PG=$T/pg
 mkdir -p "$PG" "$T/bin"
 
@@ -176,5 +177,39 @@ done
 # work treats an unrecognised arg1 as a command to run, which falls through to
 # a sudo re-exec; without the early dispatch these verbs HANG with no TTY.
 [ -e "$T/sudo-called" ] && fail "current/check reached the sudo re-exec"
+
+# --- work_group DERIVES from the profile name --------------------------------
+# End to end: a record with NO work_group, named after a group we really hold,
+# must rank as a match on the derived name alone.
+rm -f "$PG"/*
+printf 'work_dir=/tmp/wk-derived\n' > "$PG/$PRIMARY"
+out=$(work current) || fail "current: non-zero exit on a derived group"
+[ "$out" = "$PRIMARY" ] ||
+  fail "derive: a record with no work_group did not match (got '$out')"
+rm -f "$PG"/*
+
+printf 'work_dir=/tmp/wk-derived\n' > "$PG/derived"
+rd=". '$WCLIB'; wc_load derived; echo \$WC_GROUP"
+got=$(WC_PROFILES_DIR="$PG" sh -c "$rd")
+[ "$got" = derived ] || fail "derive: WC_GROUP is '$got', want 'derived'"
+
+# An explicit work_group still overrides the derived one.
+printf 'work_group=other\nwork_dir=/tmp/wk-derived\n' > "$PG/derived"
+got=$(WC_PROFILES_DIR="$PG" sh -c "$rd")
+[ "$got" = other ] || fail "derive: override ignored, WC_GROUP is '$got'"
+
+# ...and validate WARNS about that second name, without failing the record.
+rep=$(WC_PROFILES_DIR="$PG" NO_COLOR=1 "$SEV" validate derived) ||
+  fail "validate: non-zero on a legal work_group override"
+case $rep in
+  *WARN*"differs from the profile name"*) ;;
+  *) fail "validate: no warning for work_group != profile name" ;;
+esac
+printf 'work_dir=/tmp/wk-derived\n' > "$PG/derived"
+rep=$(WC_PROFILES_DIR="$PG" NO_COLOR=1 "$SEV" validate derived) ||
+  fail "validate: non-zero on a derived work_group"
+case $rep in
+  *WARN*) fail "validate: warned about a work_group that did not diverge" ;;
+esac
 
 pass
