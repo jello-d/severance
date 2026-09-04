@@ -34,11 +34,20 @@ done
 [ "$(field gemini 4)" = yes ]               || fail "gemini should be sealed"
 [ "$(field codex  4)" = no ]                || fail "codex should not be sealed"
 
-# gcloud has a sealed dir and NO env var. That asymmetry is real, and the point
-# of a table is that it shows: spread across seal.sh and bin/work it was
-# invisible. `-` means "set nothing", and must not become the literal string.
-[ "$(field gcloud 2)" = - ]   || fail "gcloud's env cell should be '-'"
-[ "$(field gcloud 4)" = yes ] || fail "gcloud should be sealed"
+# gcloud is sealed AND routed. It was shipped with no variable, which the
+# table made visible: valet-key selects CLOUDSDK_CONFIG per profile through its
+# own adapter, so the routing worked, but a BARE /usr/bin/gcloud inside a work
+# session -- bypassing that shim, as gcloud-migrate deliberately does -- had no
+# base and fell back to the personal dir. The base closes that and agrees with
+# what valet-key selects.
+[ "$(field gcloud 2)" = CLOUDSDK_CONFIG ] || fail "gcloud should set a base"
+[ "$(field gcloud 4)" = yes ]             || fail "gcloud should be sealed"
+
+# `-` still means "set nothing" and must never become the literal string: a row
+# may legitimately route nothing and only ask for a seal.
+printf 'noenv - noenvdir no\n' > "$D/05-noenv"
+[ "$(field noenv 2)" = - ] || fail "'-' did not survive as the env cell"
+rm -f "$D/05-noenv"
 
 # --- comments and blank lines are not rows ---------------------------------
 tools | grep -q '^#' && fail "a comment line was emitted as a row"
@@ -55,13 +64,13 @@ cmp -s "$SHARE/tools" "$SHARE/tools" || fail "impossible"
 
 # --- a drop-in may CORRECT a shipped default (last wins) -------------------
 # Otherwise an integrator disagreeing with one row would have to fork the file.
-printf 'gcloud CLOUDSDK_CONFIG gcloud yes\n' > "$D/60-fix"
-[ "$(field gcloud 2)" = CLOUDSDK_CONFIG ] || fail "drop-in did not override"
+printf 'gcloud OVERRIDDEN_CFG gcloud yes\n' > "$D/60-fix"
+[ "$(field gcloud 2)" = OVERRIDDEN_CFG ] || fail "drop-in did not override"
 [ "$(tools | grep -c '^gcloud ')" = 1 ] || fail "override duplicated the row"
 
 # ...and drop-ins are ordered by NAME, so precedence is predictable.
 printf 'gcloud EARLIER gcloud yes\n' > "$D/10-early"
-[ "$(field gcloud 2)" = CLOUDSDK_CONFIG ] \
+[ "$(field gcloud 2)" = OVERRIDDEN_CFG ] \
   || fail "a later-named drop-in did not win"
 rm -f "$D"/*
 

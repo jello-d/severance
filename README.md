@@ -114,12 +114,15 @@ Work-scoped tools keep their credentials under the enclave config root
     claude     CLAUDE_CONFIG_DIR    claude   no
     gemini     GEMINI_CLI_HOME      gemini   yes
     codex      CODEX_HOME           codex    no
-    gcloud     -                    gcloud   yes
+    gcloud     CLOUDSDK_CONFIG      gcloud   yes
 
 Every case is the same four fields, so adding a tool is a line rather than a
 plugin API with discovery, an env contract and exit-code classification. A
-table also makes gaps legible: `gcloud` has a sealed dir and no variable, which
-was invisible while the same fact lived in two files.
+table also makes gaps legible: `gcloud` shipped with a sealed dir and no
+variable, invisible while the same fact lived in two files. The variable is a
+**base** -- a launcher that selects per-profile overrides it at exec, and the
+base is what a *bare* invocation in a work session gets, so it is what keeps a
+direct call from falling back to the personal dir. `-` means route nothing.
 
 Ownership follows `/etc/profile` and `/etc/profile.d`. severance ships and owns
 `share/tools`; an integrator adds its own tools in its **own** drop-in under
