@@ -79,12 +79,19 @@ case $cmd in
   # resolve retired into `current`; guard is a top-level verb. Kept as a loud
   # error, not a silent alias: a stale caller must be FIXED, not quietly served
   # by a shim that hides which spelling is live.
+  #
+  # Exit 1, NOT the conventional 2 for a usage error, because 2 is already
+  # spoken for in the contract this verb used to serve: valet-key's guard seam
+  # reads 2 as "warn, then PROCEED" and anything else as "refuse". A retired
+  # boundary verb must fail CLOSED. Exiting 2 here turned a stale hook into a
+  # silently disabled ZDR guard, which is the precise failure this whole verb
+  # exists to prevent.
   context)
     echo "severance: 'context' is retired." >&2
     echo "  context resolve -> severance current (prints nothing, not" >&2
     echo "                     'personal', when outside an enclave)" >&2
     echo "  context guard   -> severance guard" >&2
-    exit 2 ;;
+    exit 1 ;;
   ''|-h|--help|help) _usage ;;
   *) echo "severance: unknown command: $cmd" >&2; _usage ;;
 esac

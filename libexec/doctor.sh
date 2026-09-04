@@ -4,6 +4,34 @@
 # only the provisioned wall): doctor answers "is my boundary intact end to end,"
 # the question a fresh install or a friend's first run wants. Non-zero on any
 # failure. Sourced by bin/severance.
+
+# Audit the valet-key shim for CORRECTNESS, not mere presence. A hook pinned to
+# a verb severance has retired is worse than a missing one: valet-key's guard
+# seam reads a failing hook as "warn, then proceed", so the ZDR refuse silently
+# becomes a no-op while everything still looks wired. Presence was the old test,
+# and it reported exactly that broken state as [OK].
+#
+# Its own function so the test suite can drive the REAL logic rather than a
+# copy of it -- the drift this whole audit exists to catch is the same drift a
+# reimplemented test would hide.
+_doctor_valet_key() {
+  _vh=${XDG_CONFIG_HOME:-$HOME/.config}/valet-key/context
+  if [ ! -e "$_vh" ]; then
+    _warn "valet-key present but its context shim is not wired"
+  elif grep -q 'severance context' "$_vh" 2>/dev/null; then
+    _bad "valet-key shim calls the RETIRED 'severance context'"
+    _bad "  -> $_vh"
+    _bad "  Its ZDR guard is a NO-OP. Rewire it to 'severance current' +"
+    _bad "  'severance guard' -- see docs/breaking-changes.md."
+  elif grep -q 'severance current' "$_vh" 2>/dev/null &&
+       grep -q 'severance guard' "$_vh" 2>/dev/null; then
+    _ok "valet-key context shim wired to the current verbs"
+  else
+    _warn "valet-key shim at $_vh calls neither 'severance current' nor"
+    _warn "  'severance guard'; severance cannot confirm it is wired"
+  fi
+}
+
 sev_doctor() {
   echo "== severance doctor =="
 
@@ -33,12 +61,7 @@ sev_doctor() {
        include.path 2>/dev/null | grep -q 'work-context.gen'; then
     _ok "git includeIf wired"
   else _warn "git includeIf not wired (a host, or 'severance install')"; fi
-  if command -v valet-key >/dev/null 2>&1; then
-    _vh=${XDG_CONFIG_HOME:-$HOME/.config}/valet-key/context
-    if [ -e "$_vh" ] && grep -q 'severance context' "$_vh" 2>/dev/null; then
-      _ok "valet-key context shim present"
-    else _warn "valet-key present but its context shim is not wired"; fi
-  fi
+  command -v valet-key >/dev/null 2>&1 && _doctor_valet_key
 
   # 5. the live wall + runner (delegate to the existing audits)
   . "$LIBEXEC/seal.sh";   sev_seal_check

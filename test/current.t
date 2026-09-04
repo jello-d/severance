@@ -175,7 +175,7 @@ rc=0; sev current 1 2 2>/dev/null || rc=$?
 # A stale caller must be fixed, not quietly served by a shim that hides which
 # spelling is live.
 rc=0; sev context resolve >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "context resolve: got rc=$rc, want 2 (retired)"
+[ "$rc" = 1 ] || fail "context resolve: got rc=$rc, want 1 (retired)"
 err=$(sev context resolve 2>&1 >/dev/null) || true
 case $err in
   *"severance current"*) ;;
@@ -353,5 +353,70 @@ sev_stub "" 2
 rc=0; out=$(hook_resolve 2>/dev/null) || rc=$?
 [ "$rc" != 0 ] || fail "hook: exit 0 when current could not answer"
 [ "$out" != personal ] || fail "hook: called an unanswerable context personal"
+
+# --- doctor audits the shim for CORRECTNESS, not presence --------------------
+# A hook pinned to a retired verb is worse than a missing one: valet-key reads
+# a failing hook's exit 2 as "warn, then proceed", so the ZDR refuse silently
+# becomes a no-op. Presence alone reported exactly that state as [OK].
+mkdir -p "$VKC/valet-key"
+vk=$VKC/valet-key/context
+
+# Drives the REAL _doctor_valet_key, extracted from doctor.sh, rather than a
+# reimplementation: a test that copies the logic cannot catch that logic
+# drifting, which is the exact class of bug this audit exists to find.
+dvk=$(sed -n '/^_doctor_valet_key() {/,/^}/p' "$HERE/libexec/doctor.sh")
+[ -n "$dvk" ] || fail "could not extract _doctor_valet_key from doctor.sh"
+audit() {
+  XDG_CONFIG_HOME="$VKC" NO_COLOR=1 LIBEXEC="$HERE/libexec" \
+    sh -c ". \"\$LIBEXEC/common.sh\"
+           $dvk
+           _doctor_valet_key
+           exit \$REPORT_RC" 2>&1
+}
+
+# The shipped generator's own output must pass its own audit. That is the loop
+# that was open: install wrote one string, doctor grepped another.
+rm -f "$vk"; wire >/dev/null
+out=$(audit) || true
+case $out in
+  *"[OK]"*) ;;
+  *) fail "doctor: rejects the very hook that install writes" ;;
+esac
+
+printf '#!/bin/sh\nexec severance context "$@"\n' > "$vk"
+# `|| true`: audit exits non-zero BY DESIGN here (it found drift), and that is
+# the case under test, so it must not trip this script's own set -e.
+out=$(audit) || true
+case $out in
+  *"[FAIL]"*) ;;
+  *) fail "doctor: a retired-verb shim did not FAIL: '$out'" ;;
+esac
+
+rm -f "$vk"
+out=$(audit) || true
+case $out in
+  *"[WARN]"*) ;;
+  *) fail "doctor: a missing shim did not warn" ;;
+esac
+
+# A shim naming NEITHER verb cannot be confirmed, so it warns rather than
+# passing. Silence here would let any unrelated file read as a wired boundary.
+printf '#!/bin/sh\nexit 0\n' > "$vk"
+out=$(audit) || true
+case $out in
+  *"[WARN]"*) ;;
+  *) fail "doctor: an unrecognised shim did not warn: '$out'" ;;
+esac
+case $out in
+  *"[OK]"*) fail "doctor: an unrecognised shim reported OK" ;;
+esac
+
+# --- the retired verb fails CLOSED --------------------------------------------
+# valet-key's guard seam reads exit 2 as "warn, then PROCEED" and anything else
+# as "refuse". A retired boundary verb exiting 2 turns a stale hook into a
+# silently disabled ZDR guard, so it must not be 2.
+rc=0; sev context guard >/dev/null 2>&1 || rc=$?
+[ "$rc" != 2 ] || fail "retired 'context' exits 2 = valet-key PROCEEDS"
+[ "$rc" = 1 ] || fail "retired 'context' exits $rc, want 1 (refuse)"
 
 pass

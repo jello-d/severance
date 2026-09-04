@@ -15,6 +15,13 @@ All of the following are breaking. Nothing is silently aliased, because a stale
 caller must be FIXED rather than quietly served by a shim that hides which
 spelling is live.
 
+> **If you are reading this because something broke: check
+> `severance doctor` first.** A shim still calling `severance context` leaves
+> valet-key's ZDR guard a NO-OP -- valet-key reads a failing hook's exit as
+> "warn, then proceed". severance now exits 1 (refuse) rather than 2 (proceed)
+> from the retired verb, so it fails closed, and `doctor` reports the stale
+> shim as a FAILURE instead of "present".
+
 ## 1. `severance context` is retired
 
     context resolve   ->  severance current
@@ -86,6 +93,10 @@ straight at severance instead:
 
 `link/config/mux/context` (the older 70-line hook that supplied a tmux style
 string) can go at the same time if every machine is on mux 0.3.
+
+**This one is urgent, not cosmetic.** tackup's shim is the one installed on a
+provisioned box (severance defers to the symlink), it still calls the retired
+verb, and until it is fixed valet-key's ZDR guard does nothing there.
 
 **Decide whether to keep shipping `link/config/valet-key/context` at all.**
 severance's own `install` publishes exactly this hook
