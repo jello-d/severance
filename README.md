@@ -74,11 +74,19 @@ Health, and tearing one down:
     runner=work-runner                  # optional (default <label>-runner)
     enclave_personal=carveout/*         # optional: sanctioned personal subtrees
 
-`work_group` derives from the profile name, so an enclave has ONE name rather
-than the same name stored twice where the two can drift. Set the key only when
-the profile name is not a legal group name; `severance validate` warns when the
-two differ. Likewise `claude_config` derives from `work_dir`, so the work
-account lands behind the same gate as everything else.
+A profile name is the enclave's **published identity**: the group name, a path
+component, and the token `severance current` hands to consumers that use it as
+a socket name or namespace. So it is linted as a **DNS label** (`a-z`, `0-9`,
+hyphen; no leading or trailing hyphen; 63 max), the intersection every one of
+those uses accepts. Underscore is deliberately rejected even though it is legal
+in a Unix group, so a name cannot provision cleanly and then be refused
+downstream.
+
+`work_group` derives from that name, so an enclave has ONE name rather than the
+same name stored twice where the two can drift. Set the key only when you need
+a group a DNS label cannot spell; `severance validate` warns when the two
+differ. Likewise `claude_config` derives from `work_dir`, so the work account
+lands behind the same gate as everything else.
 
 ## Two commands, one job each
 

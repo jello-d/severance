@@ -97,6 +97,16 @@ sev_init() {
   _name=${1:-}
   [ -n "$_name" ] || {
     echo "usage: severance init <name> [key=val ...]" >&2; return 2; }
+  # Reject a bad name HERE rather than scaffolding a record that only fails at
+  # validate: the name is the enclave's published identity, so it has to be
+  # legal everywhere it lands before anything is written.
+  . "$LIBEXEC/validate.sh"
+  _dns_label "$_name" || {
+    echo "severance: '$_name' is not a valid profile name. Use a DNS" >&2
+    echo "  label: a-z, 0-9 and hyphen, no leading or trailing hyphen," >&2
+    echo "  63 max. It becomes the group name, a path component, and the" >&2
+    echo "  token 'severance current' publishes." >&2
+    return 2; }
   _sev_host_managed && { _sev_host_note init; return 1; }
   shift
   _dir=$(_sev_config_dir)/profiles
@@ -111,7 +121,7 @@ sev_init() {
   } > "$_f"
   echo "severance: wrote $_f"
   # Validate the scaffold parses + is sane, then point at the next steps.
-  . "$LIBEXEC/validate.sh"
+  # (validate.sh is already sourced above, for the name check.)
   _validate_record "$_name"
   echo "severance: edit it (work_dir), then:"
   echo "  severance seal        # provision the wall"

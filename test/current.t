@@ -201,4 +201,29 @@ case $rep in
   *WARN*) fail "validate: warned about a work_group that did not diverge" ;;
 esac
 
+# --- a profile name is linted as a DNS LABEL ---------------------------------
+# The name is the published identity: a group, a path component, and the token
+# consumers use as a socket name or namespace. Underscore is legal in a Unix
+# group and illegal in a DNS label, so it must be caught HERE, at provision
+# time, rather than downstream at use time.
+rm -f "$PG"/*
+for bad in my_work UPPER -lead trail-; do
+  printf 'work_dir=/tmp/wk\n' > "$PG/$bad"
+  sev validate "$bad" >/dev/null 2>&1 &&
+    fail "validate: accepted '$bad' as a profile name"
+  rm -f "$PG/$bad"
+done
+for good in manifest a a-b x9-y; do
+  printf 'work_dir=/tmp/wk\n' > "$PG/$good"
+  sev validate "$good" >/dev/null 2>&1 ||
+    fail "validate: rejected '$good', a valid DNS label"
+  rm -f "$PG/$good"
+done
+
+# `init` refuses a bad name UP FRONT, and writes nothing.
+rc=0; XDG_CONFIG_HOME="$T/cfg" sev init my_work >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "init: got rc=$rc for an illegal name, want 2"
+[ -e "$T/cfg/severance/profiles/my_work" ] &&
+  fail "init: scaffolded a record for an illegal name"
+
 pass

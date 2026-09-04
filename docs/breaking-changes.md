@@ -47,7 +47,18 @@ An unrecognised first word is now a usage error (exit 2) instead of being
 treated as a command. That is the fix for the real defect: an unclassifiable
 word used to fall through to the sudo re-exec and HANG with no TTY.
 
-## 4. `work_group` and `claude_config` derive
+## 4. Profile names are linted as DNS labels
+
+`a-z`, `0-9` and hyphen; no leading or trailing hyphen; 63 characters max.
+Underscore is now rejected. It is legal in a Unix group and illegal in a DNS
+label, so a name like `my_work` used to provision cleanly and then be refused
+downstream at use time. `severance init` refuses such a name up front and
+writes nothing.
+
+Nothing in the fleet is affected today: the only provisioned profile anywhere
+is `manifest`, which is already a valid label.
+
+## 5. `work_group` and `claude_config` derive
 
 `work_group` defaults to the profile name; `claude_config` defaults to
 `<work_dir>/.config/claude`. `severance init` no longer scaffolds either.
@@ -105,7 +116,9 @@ example is:
 which needs no hook file at all. `severance current` already satisfies mux's
 contract exactly: one word on stdout, empty output meaning `global`, exit 0.
 
-**No code change is needed.** mux validates the token as a DNS label already.
+**No code change is needed.** mux validates the token as a DNS label already,
+and severance now lints profile names to the same shape, so the two agree by
+construction instead of by luck.
 
 ## valet-key
 

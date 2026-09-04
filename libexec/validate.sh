@@ -6,14 +6,36 @@
 # Validate ONE record: parses, required keys present, and sane bounds (a valid
 # group name; work_dir an absolute path that is NOT $HOME or / -- the wall must
 # be a subdirectory, never the whole home or root).
+# A profile name is the enclave's PUBLISHED IDENTITY: it is the group name, a
+# path component, and the token `severance current` hands to consumers that use
+# it as a socket name or namespace. So it is linted as a DNS label -- lowercase
+# alphanumeric and hyphen, no leading or trailing hyphen, 63 max -- which is the
+# intersection every one of those uses can accept. Underscore is deliberately
+# NOT allowed: it is legal in a Unix group and illegal in a DNS label, so
+# allowing it here would let a record provision cleanly and then be rejected
+# downstream at use time.
+_dns_label() {   # <name>
+  case $1 in
+    ''|*[!a-z0-9-]*|-*|*-) return 1 ;;
+  esac
+  [ "${#1}" -le 63 ]
+}
+
 _validate_record() {   # <profile>
+  if _dns_label "$1"; then
+    _ok "$1: profile name"
+  else
+    _bad "$1: profile name is not a DNS label (a-z, 0-9, hyphen; no leading" \
+         "or trailing hyphen; 63 max)"
+  fi
   if ! wc_load "$1" 2>/dev/null; then
     _bad "$1: record does not parse (unknown key or missing required field)"
     return
   fi
   # work_group derives from the profile name unless the record overrides it.
-  # A divergence is legal (a profile name need not be a legal group name) but
-  # it means the enclave has two names, so surface it rather than hide it.
+  # A divergence is legal (a group name may hold characters a DNS label may
+  # not) but it means the enclave has two names, so surface it rather than
+  # hide it.
   case "$WC_GROUP" in
     ''|*[!a-z0-9_-]*) _bad "$1: work_group '$WC_GROUP' is not a valid group" ;;
     "$1")             _ok  "$1: work_group '$WC_GROUP'" ;;
