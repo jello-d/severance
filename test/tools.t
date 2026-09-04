@@ -72,6 +72,24 @@ out=$(env SEVERANCE_SHARE="$T/nope" WC_TOOLS_DIR="$D" \
   sh -c ". '$WCLIB'; wc_tools") || fail "wc_tools errored with no table"
 [ -z "$out" ] || fail "wc_tools invented rows with no table: '$out'"
 
+# --- a missing SEVERANCE_SHARE is LOUD, not silently default-less ----------
+# Composing "$SEVERANCE_SHARE/tools" from an unset variable yields "/tools",
+# which reads fine and silently drops every shipped default -- a caller would
+# get drop-ins only, with no sign the defaults had vanished.
+printf 'only-a-dropin ONLY_ENV onlydir no\n' > "$D/70-only"
+err=$(env -u SEVERANCE_SHARE WC_TOOLS_DIR="$D" \
+  sh -c ". '$WCLIB'; wc_tools" 2>&1 >/dev/null) || true
+case $err in
+  *"SEVERANCE_SHARE unset"*) ;;
+  *) fail "an unset SEVERANCE_SHARE was silent: '$err'" ;;
+esac
+# ...and it still answers with what it DOES have, rather than failing shut.
+out=$(env -u SEVERANCE_SHARE WC_TOOLS_DIR="$D" \
+  sh -c ". '$WCLIB'; wc_tools" 2>/dev/null)
+[ "$out" = "only-a-dropin ONLY_ENV onlydir no" ] ||
+  fail "drop-ins lost when SEVERANCE_SHARE is unset: '$out'"
+rm -f "$D"/*
+
 # --- the seal selection: seal=yes AND the tool installed -------------------
 # "the right thing if the crumbs are there, otherwise skip" -- an absent tool
 # must not have a dir provisioned for it.

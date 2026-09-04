@@ -260,7 +260,14 @@ wc_account() {
 # $WC_TOOLS_DIR, so severance can rewrite its defaults without clobbering
 # anyone and nobody has to edit a file they do not own. Drop-ins are read in
 # name order after the defaults.
-WC_TOOLS=${WC_TOOLS:-${SEVERANCE_SHARE:-}/tools}
+# SEVERANCE_SHARE is set by both entry points (bin/severance, bin/work). If it
+# is somehow not, do NOT compose a bogus "/tools" path: that silently drops
+# every shipped default and leaves a caller with drop-ins only and no sign of
+# it. Empty here, and wc_tools says so.
+if   [ -n "${WC_TOOLS:-}" ];       then :
+elif [ -n "${SEVERANCE_SHARE:-}" ]; then WC_TOOLS=$SEVERANCE_SHARE/tools
+else WC_TOOLS=
+fi
 _wc_cfg=${XDG_CONFIG_HOME:-$HOME/.config}/severance
 WC_TOOLS_DIR=${WC_TOOLS_DIR:-$_wc_cfg/tools.d}
 
@@ -268,7 +275,9 @@ WC_TOOLS_DIR=${WC_TOOLS_DIR:-$_wc_cfg/tools.d}
 # stripped. A later row for the same TOOL wins, so a drop-in can correct a
 # shipped default rather than having to fork the file.
 wc_tools() {
-  { [ -r "$WC_TOOLS" ] && cat "$WC_TOOLS"
+  [ -n "$WC_TOOLS" ] || echo "work-context: SEVERANCE_SHARE unset;\
+ the shipped tools defaults are unavailable" >&2
+  { [ -n "$WC_TOOLS" ] && [ -r "$WC_TOOLS" ] && cat "$WC_TOOLS"
     for _t in "$WC_TOOLS_DIR"/*; do [ -f "$_t" ] && cat "$_t"; done
   } 2>/dev/null | awk '
       /^[[:space:]]*(#|$)/ { next }
