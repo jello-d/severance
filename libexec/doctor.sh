@@ -25,7 +25,20 @@ _doctor_valet_key() {
     _bad "  'severance guard' -- see docs/breaking-changes.md."
   elif grep -q 'severance current' "$_vh" 2>/dev/null &&
        grep -q 'severance guard' "$_vh" 2>/dev/null; then
-    _ok "valet-key context shim wired to the current verbs"
+    # Naming the verbs is not enough. The hook execs whatever `severance` is on
+    # PATH, which on a provisioned box is the DEPLOYED copy, not this one. If
+    # that copy predates the verbs the hook fails, and valet-key reads a failed
+    # guard as "warn, then proceed" -- so a deploy skew disables the ZDR refuse
+    # exactly the way a stale hook did. Check the verbs RESOLVE, not that the
+    # text mentions them.
+    if severance current >/dev/null 2>&1; then
+      _ok "valet-key context shim wired to the current verbs"
+    else
+      _bad "valet-key shim: the 'severance' on PATH lacks 'current'"
+      _bad "  -> $(command -v severance 2>/dev/null || echo 'not on PATH')"
+      _bad "  The hook names the right verbs but they do not resolve there,"
+      _bad "  so its ZDR guard is a NO-OP. Update the deployed copy."
+    fi
   else
     _warn "valet-key shim at $_vh calls neither 'severance current' nor"
     _warn "  'severance guard'; severance cannot confirm it is wired"

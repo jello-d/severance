@@ -379,8 +379,12 @@ vk=$VKC/valet-key/context
 # drifting, which is the exact class of bug this audit exists to find.
 dvk=$(sed -n '/^_doctor_valet_key() {/,/^}/p' "$HERE/libexec/doctor.sh")
 [ -n "$dvk" ] || fail "could not extract _doctor_valet_key from doctor.sh"
+# PATH is pinned to THIS repo's bin so the audit is hermetic: it checks the
+# hook against a severance the test controls, not whatever copy the box has
+# deployed. The skew case below overrides it deliberately.
 audit() {
   XDG_CONFIG_HOME="$VKC" NO_COLOR=1 LIBEXEC="$HERE/libexec" \
+    PATH="${AUDIT_PATH:-$HERE/bin:$PATH}" \
     sh -c ". \"\$LIBEXEC/common.sh\"
            $dvk
            _doctor_valet_key
@@ -423,6 +427,25 @@ esac
 case $out in
   *"[OK]"*) fail "doctor: an unrecognised shim reported OK" ;;
 esac
+
+# A hook naming the right verbs still fails if the `severance` it EXECS does
+# not have them -- on a provisioned box that is the deployed copy, not this
+# one. valet-key reads the failed guard as "proceed", so a deploy skew disables
+# the ZDR refuse exactly the way a stale hook did. The audit must therefore
+# check the verbs RESOLVE, not merely that the text names them.
+rm -f "$vk"; wire >/dev/null
+printf '#!/bin/sh\nexit 2\n' > "$VKC/bin/severance"   # a severance without them
+chmod +x "$VKC/bin/severance"
+out=$(AUDIT_PATH="$VKC/bin:$PATH" audit) || true
+case $out in
+  *"[FAIL]"*) ;;
+  *) fail "doctor: a stale deployed severance passed the audit: '$out'" ;;
+esac
+case $out in
+  *"lacks 'current'"*) ;;
+  *) fail "doctor: skew reported without naming the cause: '$out'" ;;
+esac
+rm -f "$VKC/bin/severance"
 
 # --- the retired verb fails CLOSED --------------------------------------------
 # valet-key's guard seam reads exit 2 as "warn, then PROCEED" and anything else
