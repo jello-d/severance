@@ -43,6 +43,12 @@ for _cand in \
 done
 [ -n "$wc_lib" ] ||
   { echo "work: work-context reader not found" >&2; exit 1; }
+# share/ sits beside libexec/ in the package, and the reader needs it to find
+# the tools table. Derived from the READER we just resolved, so it follows the
+# same install symlink rather than guessing a second time.
+_wc_libdir=$(cd "$(dirname -- "$wc_lib")" 2>/dev/null && pwd -P) || _wc_libdir=
+[ -n "${SEVERANCE_SHARE:-}" ] || SEVERANCE_SHARE=${_wc_libdir%/*}/share
+export SEVERANCE_SHARE
 . "$wc_lib"
 
 # --- argument grammar: [verb] [profile] [-- CMD ...] -------------------------
@@ -97,12 +103,12 @@ if [ "$_rc" != 0 ]; then
 fi
 
 # Acquire the group once via a same-uid sudo, then re-enter. sudo scrubs the
-# environment, so forward the live session resources env_load cannot
+# environment, so forward the live SESSION RESOURCES nothing downstream can
 # reconstruct: SSH_AUTH_SOCK, and the Wayland/X display + runtime dir so an app
-# in here (e.g. claude) can still reach the system clipboard to PASTE (copy out
-# is an OSC 52 escape and needs none of this). Same uid, so this crosses no
-# boundary -- the wall is the group ACL on work_dir, untouched. Everything else
-# is re-derived by env_load. WORK_REEXEC guards against a loop with no sudoers.
+# in here can still reach the system clipboard to PASTE (copy out is an OSC 52
+# escape and needs none of this). Same uid, so this crosses no boundary -- the
+# wall is the group ACL on work_dir, untouched. Anything else the session wants
+# is the enclave's .workrc to set. WORK_REEXEC guards a loop with no sudoers.
 #
 # The re-exec forwards a NORMALISED argv (`run -- CMD`, or `enter`), never the
 # user's original words: the profile is already resolved and travels in
@@ -134,22 +140,37 @@ fi
 # re-exec flag must not survive.
 unset WORK_REEXEC
 
-export CLAUDE_CONFIG_DIR="$WC_CLAUDE_CONFIG"
 unset ANTHROPIC_API_KEY
+
+# The table is read in a PIPELINE, whose subshell cannot export into us, so the
+# assignments are generated to a temp file and sourced. mktemp, not a fixed
+# path: this runs as the login user in a shared /tmp.
+_tools_env=$(mktemp "${TMPDIR:-/tmp}/work-tools.XXXXXX")
 
 # WORK_HOME: the sealed enclave root (= work_dir). Point every work-scoped tool
 # at its dir UNDER it, so all work credential stores live behind the ONE gate
 # (docs/work-home.md). These are EXPLICIT, per-tool overrides ONLY -- we do NOT
 # set HOME or XDG_CONFIG_HOME (never hijack an implicitly-resolved var; that
-# would silently over-capture personal config). CLAUDE_CONFIG_DIR above is the
-# derived WC_CLAUDE_CONFIG ($WC_CONFIG_ROOT/claude). The valet-key pool root is
-# the load-bearing one: it puts every work agent's credential slots inside the
-# seal. GEMINI_CLI_HOME/CODEX_HOME name the per-tool base (valet-key overrides
-# them per slot at launch); a bare invocation falls back to the base.
+# would silently over-capture personal config).
 export WORK_HOME="$WC_DIR"
-export VALET_KEY_POOL_ROOT="$WC_CONFIG_ROOT/valet-key-pool"
-export GEMINI_CLI_HOME="$WC_CONFIG_ROOT/gemini"   # gemini appends /.gemini
-export CODEX_HOME="$WC_CONFIG_ROOT/codex"
+
+# Point each tool at its dir under the config root, FROM THE TABLE
+# (share/tools + tools.d drop-ins) rather than a list hardcoded here. A row
+# with `-` for its variable sets none. Exported unconditionally, whether or not
+# the tool is installed: a variable naming a dir for an absent tool is
+# harmless, and probing PATH per tool on every `work` would not be free.
+wc_tools | while read -r _tool _env _dir _seal; do
+  [ "$_env" = - ] && continue
+  printf "export %s='%s'\n" "$_env" "$WC_CONFIG_ROOT/$_dir"
+done > "$_tools_env"
+. "$_tools_env"
+rm -f "$_tools_env"
+
+# LAST, so it beats the table: claude's dir is the one a record may OVERRIDE
+# (the claude_config key), and an override that the generic table then
+# clobbered would be a setting that silently did nothing. The table row still
+# governs whether that dir is sealed.
+export CLAUDE_CONFIG_DIR="$WC_CLAUDE_CONFIG"
 
 # Point docker at THIS enclave's rootless-docker runner socket (the runner:
 # /run/<runner>/docker.sock, group <group> 0660 -- a work session reaches it by
@@ -169,34 +190,25 @@ export CODEX_HOME="$WC_CONFIG_ROOT/codex"
 if [ "$mode" = run ]; then
   cd "$WC_DIR" 2>/dev/null || true
   unset ENV
-  # Establish the box shell environment (PATH + self/env, and the nvm/tfenv
-  # toolchains on PATH) so `work run` runs with the SAME tools as the
-  # interactive shell -- node/npm/terraform etc. Without it a re-exec'd command
-  # ran with only sudo's bare PATH and no nvm (`node: command not found`).
-  # GOTCHA: dash's `.` DROPS arguments (POSIX-permitted), so `. file a b` lets
-  # the SOURCED file see the CALLER's $@ (here: the command) as its scope, not
-  # `path env nvm tfenv`. Wrap the source in a function so the file sees the
-  # FUNCTION's params, and the script's own $@ stays intact for `exec "$@"`.
-  # (~/.profile's bare `. ... args` works only because a login shell has no $@;
-  # the interactive rc below is sourced by ksh, which -- unlike dash -- honors
-  # `.` args.)
-  if [ -r "$HOME/lib/load_helper_funcs" ]; then
-    _load_helpers() { . "$HOME/lib/load_helper_funcs"; }
-    set +eu; _load_helpers path env nvm tfenv; set -eu
-    # Fail LOUD, not silent: a load that leaves env_load undefined is incoherent
-    # and would otherwise degrade to a bare PATH that fails later and elsewhere.
-    command -v env_load >/dev/null 2>&1 \
-      || { echo "work: box shell env failed to load" >&2; exit 1; }
-    set +eu; env_load; set -eu
-  fi
+  # NOTHING about this box's shell framework is known here. A session's
+  # environment (PATH, toolchain managers, history) is the ENCLAVE's business
+  # and lives in its .workrc, sourced below in BOTH this path and the
+  # interactive one. work used to source ~/lib/load_helper_funcs and call
+  # env_load/sh_history_start by name -- a specific provisioner's private
+  # dotfile convention, hardcoded into the boundary, and not even a public
+  # tool. It also made a standalone box's interactive session fail outright,
+  # since the rc wrote that source line unconditionally.
   if [ -r "$WC_DIR/.workrc" ]; then set +eu; . "$WC_DIR/.workrc"; set -eu; fi
   exec "$@"
 fi
 
-# Interactive: point $ENV at a throwaway rc that establishes the environment
-# (env_load, shared with login shells), turns on history, and sets the fixed
-# prompt. Every POSIX shell sources $ENV interactively, so no per-shell case.
-# Not exec'd, so the trap cleans up the rc.
+# Interactive: point $ENV at a throwaway rc that sets the prompt and then hands
+# off to the enclave's own .workrc. Every POSIX shell sources $ENV
+# interactively, so no per-shell case. Not exec'd, so the trap cleans up the rc.
+#
+# The rc is deliberately THIN: severance sets what it knows (the prompt names
+# the enclave) and the enclave sets everything else. PATH, toolchains and
+# history are not the boundary's business.
 cd "$WC_DIR" 2>/dev/null || cd "$HOME"
 rc=$(mktemp "${TMPDIR:-/tmp}/work-rc.XXXXXX")
 trap 'rm -f "$rc"' EXIT INT TERM
@@ -204,9 +216,6 @@ trap 'rm -f "$rc"' EXIT INT TERM
 # unexpanded until the rc is sourced, so single quotes are correct here.
 # shellcheck disable=SC2016
 {
-  echo '. "$HOME/lib/load_helper_funcs" path env sh_history nvm tfenv'
-  echo 'env_load'
-  echo 'sh_history_start'
   # The enclave's own NAME, not a separate display string: one name for the
   # boundary everywhere. An enclave wanting a different prompt re-sets PS1 in
   # its .workrc, sourced LAST below -- a display preference belongs with the

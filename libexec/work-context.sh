@@ -246,3 +246,34 @@ wc_account() {
     WC_ACCOUNT_WORK=1
   fi
 }
+
+# --- the tools table ---------------------------------------------------------
+# Which per-tool config dirs live behind the seal. DATA, not hooks: every case
+# is the same four fields (tool, env var, dir, seal?), so a table adds a tool in
+# one line where a plugin API would need discovery, an env contract, exit-code
+# classification and an introspection verb -- for four rows. It also makes a
+# gap legible: gcloud has a sealed dir and no env var, which is invisible when
+# the same fact is spread across seal.sh and bin/work.
+#
+# Ownership follows /etc/profile + /etc/profile.d. severance ships and owns
+# share/tools; an integrator adds its own tools in its OWN drop-in under
+# $WC_TOOLS_DIR, so severance can rewrite its defaults without clobbering
+# anyone and nobody has to edit a file they do not own. Drop-ins are read in
+# name order after the defaults.
+WC_TOOLS=${WC_TOOLS:-${SEVERANCE_SHARE:-}/tools}
+_wc_cfg=${XDG_CONFIG_HOME:-$HOME/.config}/severance
+WC_TOOLS_DIR=${WC_TOOLS_DIR:-$_wc_cfg/tools.d}
+
+# Emit the merged table as `tool env dir seal` lines, comments and blanks
+# stripped. A later row for the same TOOL wins, so a drop-in can correct a
+# shipped default rather than having to fork the file.
+wc_tools() {
+  { [ -r "$WC_TOOLS" ] && cat "$WC_TOOLS"
+    for _t in "$WC_TOOLS_DIR"/*; do [ -f "$_t" ] && cat "$_t"; done
+  } 2>/dev/null | awk '
+      /^[[:space:]]*(#|$)/ { next }
+      { seen[$1] = $1 " " $2 " " $3 " " $4
+        if (!(($1) in ord)) ord[$1] = ++n }
+      END { for (t in seen) printf "%d\t%s\n", ord[t], seen[t] }
+    ' | sort -n | cut -f2-
+}

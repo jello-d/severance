@@ -240,58 +240,45 @@ rc=0; XDG_CONFIG_HOME="$T/cfg" sev init my_work >/dev/null 2>&1 || rc=$?
 [ -e "$T/cfg/severance/profiles/my_work" ] &&
   fail "init: scaffolded a record for an illegal name"
 
-# --- the published valet-key hook tracks severance's verbs --------------------
-# `severance install` writes this hook. When a verb moves, a hook pinned to the
-# old spelling is worse than no hook: it fails at agent-launch time, far from
-# here. So a hook WE wrote is rewritten, and one we did not is left alone.
+# --- the SHIPPED valet-key hook, and what install does NOT do ----------------
+# severance owns this hook's CONTENT (it is the only thing that knows its own
+# verbs) but does NOT place it: writing into another tool's config directory is
+# the integrator's call, not the boundary's. So the artifact is what is tested,
+# and `install` is tested for NOT touching valet-key at all.
 VKC=$T/vk
-mkdir -p "$VKC/bin"
+mkdir -p "$VKC/bin" "$VKC/valet-key"
+hook=$HERE/share/hooks/valet-key-context
+[ -x "$hook" ] || fail "share/hooks/valet-key-context is not shipped executable"
+dash -n "$hook" || fail "the shipped hook is not valid sh"
+grep -q 'severance current' "$hook" ||
+  fail "shipped hook does not call 'severance current'"
+grep -q 'severance guard' "$hook" ||
+  fail "shipped hook does not call 'severance guard'"
+grep -q 'severance context' "$hook" &&
+  fail "shipped hook still calls the retired 'context'"
+
+# PURE DELEGATION: no default-token substitution. valet-key reads exit 0 as the
+# answer whether or not it printed, so a mapping here would be a second opinion
+# about what empty means.
+grep -q ':-personal' "$hook" && fail "shipped hook carries a default mapping"
+
+# `install` must NOT write into valet-key's config, even with valet-key on PATH.
 printf '#!/bin/sh\nexit 0\n' > "$VKC/bin/valet-key"
 chmod +x "$VKC/bin/valet-key"
-wire() {
-  ( . "$HERE/libexec/install.sh"
-    _sev_cfg() { echo "$VKC"; }
-    SEVERANCE_SHARE=$HERE/share
-    PATH="$VKC/bin:$PATH" _wire_valet_key ) 2>&1
-}
-wire >/dev/null
-hook=$VKC/valet-key/context
-[ -x "$hook" ] || fail "install: no valet-key hook published"
-dash -n "$hook" || fail "install: published hook is not valid sh"
-grep -q 'severance current' "$hook" ||
-  fail "hook does not call 'severance current'"
-grep -q 'severance guard' "$hook" || fail "hook does not call 'severance guard'"
-grep -q 'severance context' "$hook" &&
-  fail "hook still calls the retired 'context'"
-
-# The hook is PURE DELEGATION now. It used to carry a `${p:-personal}` mapping
-# because valet-key read an empty resolve as "no opinion"; valet-key now treats
-# exit 0 as the answer whether or not it printed, so a mapping here would be a
-# second opinion about what empty means.
-grep -q ':-personal' "$hook" && fail "hook still carries the personal mapping"
-
-# It must be the SHIPPED artifact, byte for byte: one content, several
-# placements, so a verb cannot move and leave a stale copy behind.
-cmp -s "$hook" "$HERE/share/hooks/valet-key-context" ||
-  fail "published hook differs from share/hooks/valet-key-context"
-
-# A STALE hook we published before must be REWRITTEN, not skipped.
-cat > "$hook" <<'OLD'
-#!/bin/sh
-# severance-owned valet-key hook
-exec severance context "$@"
-OLD
-wire >/dev/null
-grep -q 'severance current' "$hook" ||
-  fail "install: stale own hook not rewritten"
-
-# A hook we did NOT write is left alone, and said so loudly.
-printf '#!/bin/sh\n# hand rolled\nexit 0\n' > "$hook"
-out=$(wire)
-grep -q 'hand rolled' "$hook" || fail "install: clobbered a foreign hook"
-case $out in
-  *"not ours"*) ;;
-  *) fail "install: left a foreign hook without saying so: '$out'" ;;
+inst_out=$( ( . "$HERE/libexec/install.sh"
+              _sev_cfg() { echo "$VKC"; }
+              SEVERANCE_SHARE=$HERE/share
+              PATH="$VKC/bin:$PATH" _wiring_hint ) 2>&1 )
+[ -e "$VKC/valet-key/context" ] &&
+  fail "install wrote into valet-key's config dir"
+case $inst_out in
+  *"NOT wired by install"*) ;;
+  *) fail "install did not say integrations are unwired: '$inst_out'" ;;
+esac
+# ...and it points at the artifact and at doctor rather than acting.
+case $inst_out in
+  *"severance doctor"*) ;;
+  *) fail "install's hint does not point at doctor: '$inst_out'" ;;
 esac
 
 # --- wc_group_rank reports UNANSWERABLE distinctly ---------------------------
@@ -332,8 +319,6 @@ WC_PROFILES_DIR="$PG" sh -c ". '$WCLIB'
 # Driven against a stub `severance` so each of current's three outcomes is
 # exercised through the hook the way valet-key will call it.
 mkdir -p "$VKC/stub"
-rm -f "$hook"                       # the foreign-hook case above left one, and
-wire >/dev/null                     # wire correctly refuses to overwrite it
 sev_stub() {   # <stdout> <exit>
   { echo '#!/bin/sh'
     echo 'case "$1" in'
@@ -394,11 +379,11 @@ audit() {
 
 # The shipped generator's own output must pass its own audit. That is the loop
 # that was open: install wrote one string, doctor grepped another.
-rm -f "$vk"; wire >/dev/null
+cp "$hook" "$vk"; chmod +x "$vk"
 out=$(audit) || true
 case $out in
   *"[OK]"*) ;;
-  *) fail "doctor: rejects the very hook that install writes" ;;
+  *) fail "doctor: rejects the hook severance itself ships" ;;
 esac
 
 printf '#!/bin/sh\nexec severance context "$@"\n' > "$vk"
@@ -434,7 +419,7 @@ esac
 # one. valet-key reads the failed guard as "proceed", so a deploy skew disables
 # the ZDR refuse exactly the way a stale hook did. The audit must therefore
 # check the verbs RESOLVE, not merely that the text names them.
-rm -f "$vk"; wire >/dev/null
+cp "$hook" "$vk"; chmod +x "$vk"
 printf '#!/bin/sh\nexit 2\n' > "$VKC/bin/severance"   # a severance without them
 chmod +x "$VKC/bin/severance"
 out=$(AUDIT_PATH="$VKC/bin:$PATH" audit) || true

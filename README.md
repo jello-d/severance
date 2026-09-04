@@ -29,6 +29,13 @@ lacking the group, is denied by the filesystem.
     ./bin/severance install      # symlink into ~/.local, wire host hooks
     # ensure ~/.local/bin is on PATH
 
+`install` symlinks the package and does **nothing else**: it configures no
+other tool. Nobody installing a work/personal boundary expects it to edit their
+git config, and which boxes get which integration is the integrator's call.
+severance publishes the artifacts it is integrated by (`share/hooks/`) and
+`severance doctor` reports anything unwired, but placing them is somebody
+else's job.
+
 `install` is only for a standalone box. Under a provisioning layer (e.g. tackup)
 that already symlinks the package and owns the git/valet-key hooks, it is a
 guarded no-op. `severance uninstall` removes the links.
@@ -95,6 +102,32 @@ a group a DNS label cannot spell; `severance validate` warns when the two
 differ. Likewise `claude_config` derives from `work_dir`, so the work account
 lands behind the same gate as everything else.
 
+## Per-tool config: a table, not code
+
+Work-scoped tools keep their credentials under the enclave config root
+(`<work_dir>/.config/<tool>`), so one seal covers every credential store.
+*Which* tools, and which of them get an explicit belt-and-braces seal, is
+**data**:
+
+    # share/tools -- severance's defaults
+    # tool     env                  dir      seal
+    claude     CLAUDE_CONFIG_DIR    claude   no
+    gemini     GEMINI_CLI_HOME      gemini   yes
+    codex      CODEX_HOME           codex    no
+    gcloud     -                    gcloud   yes
+
+Every case is the same four fields, so adding a tool is a line rather than a
+plugin API with discovery, an env contract and exit-code classification. A
+table also makes gaps legible: `gcloud` has a sealed dir and no variable, which
+was invisible while the same fact lived in two files.
+
+Ownership follows `/etc/profile` and `/etc/profile.d`. severance ships and owns
+`share/tools`; an integrator adds its own tools in its **own** drop-in under
+`~/.config/severance/tools.d/`, read in name order after the defaults. So
+severance can rewrite its defaults without clobbering anyone, nobody edits a
+file they do not own, and a later row may correct an earlier one rather than
+forcing a fork. A row whose tool is not installed is skipped for sealing.
+
 ## Two commands, one job each
 
 **`severance`** is the boundary: declare it, provision it, audit it, and answer
@@ -160,8 +193,9 @@ direction this must never fail in, so an unanswerable question exits 2.
     bin/work            the enclave-entry command
     libexec/  the implementation (work-context reader, seal, runner,
                         check, ZDR guard, profile mgmt, installer)
-    share/    the generic enclave note, the runner relay unit, and
-                        hooks/ (integration hooks severance owns the text of)
+    share/    the generic enclave note, the runner relay unit,
+                        hooks/ (integration hooks severance owns the text of),
+                        and tools (the per-tool config table)
 
 ## Safety notes
 

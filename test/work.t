@@ -140,4 +140,26 @@ sudo_reached && fail "bare work with an unresolved profile reached sudo"
 rc=0; work enter beta >/dev/null 2>&1 || rc=$?
 [ "$rc" = 97 ] || fail "work enter beta: rc=$rc, want 97 (resolved, re-exec'd)"
 
+# --- work knows NOTHING about the box's shell framework ----------------------
+# A session's environment (PATH, toolchain managers, history) is the ENCLAVE's
+# business, set in its .workrc, which both paths source. work used to hardcode
+# ~/lib/load_helper_funcs and call env_load/sh_history_start by name -- one
+# provisioner's private dotfile convention baked into the boundary, and not
+# even a public tool. It also made a standalone box's interactive session fail
+# outright, because the rc emitted that source line unconditionally.
+#
+# Asserted against the SOURCE because the interactive rc needs a TTY to
+# exercise: this is a guard against reintroduction, which is the actual risk.
+for sym in load_helper_funcs env_load sh_history_start nvm tfenv; do
+  grep -n "$sym" "$WORK" | grep -qv '^[0-9]*: *#' && {
+    grep -n "$sym" "$WORK" | grep -v '^[0-9]*: *#' >&2
+    fail "bin/work references the box shell framework: $sym"
+  }
+done
+
+# Both paths must still source the enclave's own rc -- that IS the seam that
+# replaced it, so losing it would strand every session with a bare environment.
+[ "$(grep -c '\.workrc' "$WORK")" -ge 2 ] ||
+  fail "bin/work no longer sources .workrc in both paths"
+
 pass

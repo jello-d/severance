@@ -1,0 +1,27 @@
+# severance tools table -- which per-tool config dirs live behind the seal.
+#
+# THE DEFAULTS severance ships, and the only file severance owns. Additions
+# belong in drop-ins (~/.config/severance/tools.d/*), on the /etc/profile and
+# /etc/profile.d model: one shipped file for the defaults, one file per
+# integrator for its own tools, so ownership is never tangled and an upgrade
+# to this file cannot clobber somebody else's row.
+#
+# Columns, whitespace-separated. Blank lines and full-line # comments ignored.
+#
+#   tool   the command whose presence gates SEALING the dir (never the export:
+#          an env var for an absent tool is harmless, and probing PATH on every
+#          `work` invocation is not free)
+#   env    the variable pointing the tool at its work dir, or `-` for none
+#   dir    the directory UNDER the enclave config root (work_dir/.config)
+#   seal   yes = provision it root:<group> 2770 + default ACL, so the tool's
+#          credentials sit behind the SAME kernel wall as the tree; no = the
+#          enclave config root's own seal already covers it
+#
+# A row whose tool is absent is skipped for sealing -- the right thing happens
+# if the crumbs are there, and nothing happens if they are not.
+#
+# tool     env                  dir      seal
+claude     CLAUDE_CONFIG_DIR    claude   no
+gemini     GEMINI_CLI_HOME      gemini   yes
+codex      CODEX_HOME           codex    no
+gcloud     -                    gcloud   yes

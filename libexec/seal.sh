@@ -19,14 +19,12 @@ SUDOERS=${SUDOERS:-/etc/sudoers.d/work-guard}   # legacy grant, removed if found
 GIT_GEN=${GIT_GEN:-$HOME/.config/git/work-context.gen}
 SCAN_ROOT=${SCAN_ROOT:-$HOME/src}
 
-# The WORK corp-Google identity dirs, folded UNDER the enclave config root
-# (WORK_HOME/.config/{gcloud,gemini}) so all work credential stores share the
-# one work_dir-gate seal instead of N scattered ~/.config/*-<group> dirs
-# (docs/work-home.md). Still explicitly sealed (belt-and-braces). gemini's
-# GEMINI_CLI_HOME points at its dir (valet-key's dirs override) and stores
-# .gemini/ inside, inheriting the seal. Test-override: GCLOUD_WORK/GEMINI_WORK.
-_gcloud_dir() { echo "${GCLOUD_WORK:-$WC_DIR/.config/gcloud}"; }
-_gemini_dir() { echo "${GEMINI_WORK:-$WC_DIR/.config/gemini}"; }
+# Per-tool credential dirs live UNDER the enclave config root
+# (WORK_HOME/.config/<tool>) so every work credential store shares the one
+# work_dir-gate seal instead of N scattered ~/.config/*-<group> dirs
+# (docs/work-home.md). WHICH tools, and which of them are explicitly sealed
+# belt-and-braces, is the TABLE (share/tools + tools.d drop-ins), not a list
+# hardcoded here -- adding a tool is a line of data.
 
 # The login user must NOT be a permanent group member (the transient invariant).
 _permanent_member() {
@@ -109,13 +107,15 @@ _seal_identity_dir() {   # <dir>
   sudo setfacl -d -m g:"$WC_GROUP":rwX -m o::--- "$1"
   echo "severance: $1 sealed (root:$WC_GROUP 2770 + default ACL)"
 }
-seal_gcloud_work() {
-  command -v gcloud >/dev/null 2>&1 || return 0
-  _seal_identity_dir "$(_gcloud_dir)"
-}
-seal_gemini_home() {
-  command -v gemini >/dev/null 2>&1 || return 0
-  _seal_identity_dir "$(_gemini_dir)"
+# Seal every table row marked `yes` whose tool is actually installed. Absent
+# tool -> skipped: the right thing happens if the crumbs are there, and nothing
+# happens if they are not.
+seal_tool_dirs() {
+  wc_tools | while read -r _tool _env _dir _seal; do
+    [ "$_seal" = yes ] || continue
+    command -v "$_tool" >/dev/null 2>&1 || continue
+    _seal_identity_dir "$WC_CONFIG_ROOT/$_dir"
+  done
 }
 
 # The sealed per-enclave CONFIG ROOT: WORK_HOME/.config (WORK_HOME = work_dir).
@@ -166,8 +166,7 @@ _guard_one() {
   echo "severance: work_dir gate sealed (root:$WC_GROUP 2770 + default ACL)"
   seal_workhome_config
   place_claude_md
-  seal_gcloud_work
-  seal_gemini_home
+  seal_tool_dirs
 }
 
 sev_seal() {
@@ -266,8 +265,11 @@ _seal_check_one() {
     else _ok "config root .config unverifiable here (need sudo cache/group)"; fi
   fi
 
-  command -v gcloud >/dev/null 2>&1 && _check_sealed_dir gcloud "$(_gcloud_dir)"
-  command -v gemini >/dev/null 2>&1 && _check_sealed_dir gemini "$(_gemini_dir)"
+  wc_tools | while read -r _tool _env _dir _seal; do
+    [ "$_seal" = yes ] || continue
+    command -v "$_tool" >/dev/null 2>&1 || continue
+    _check_sealed_dir "$_tool" "$WC_CONFIG_ROOT/$_dir"
+  done
 
   # The enclave OWNS its CLAUDE.md (seed-only); verify presence, never content.
   if [ -d "$WC_DIR" ]; then

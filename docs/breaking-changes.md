@@ -111,7 +111,50 @@ anywhere set them, and both code paths were fully guarded on
 `grant_overlay_acl` and `seal_service_overlay` (~43 lines) and the matching
 `check` audit. They are now unknown keys.
 
-## 8. `work_group` and `claude_config` derive
+## 8. `severance install` configures nothing but itself
+
+It used to write an `include.path` into the user's global git config and drop a
+hook into valet-key's config dir. Both are gone. Nobody installing a
+work/personal boundary expects it to edit their git config, and special-casing
+git -- of all things -- was the tell that it was the wrong layer.
+
+severance still owns the CONTENT it is integrated by (`share/hooks/`) and
+`severance doctor` still reports anything unwired. Publish the artifact, audit
+the result, do not reach into someone else's config to arrange it.
+
+On a provisioned box this changes nothing: both were already deferred to the
+host symlink. A STANDALONE box must now wire them itself -- `severance install`
+prints the two commands, and `doctor` reports them as missing until it does.
+
+## 9. `work` knows nothing about the box's shell framework
+
+`bin/work` hardcoded `~/lib/load_helper_funcs` and called `env_load` /
+`sh_history_start` by name: one provisioner's private dotfile convention baked
+into the boundary, and not even a public tool. It also broke the standalone
+case outright, because the interactive rc emitted that source line
+UNCONDITIONALLY while the `run` path guarded it -- an asymmetry that shows it
+was an oversight rather than a decision.
+
+A session's environment (PATH, toolchains, history) is the ENCLAVE's business
+and belongs in `<work_dir>/.workrc`, which `work` already sourced last in both
+paths. **Move that content there**, or a work session loses it.
+
+## 10. Per-tool config dirs are a TABLE
+
+`share/tools` (severance's defaults) plus `~/.config/severance/tools.d/*`
+drop-ins, on the `/etc/profile` + `/etc/profile.d` model. The hardcoded
+per-tool code in `seal.sh` and `bin/work` is gone.
+
+`valet-key` is no longer a severance default -- severance has no reason to know
+a credential-slot pooler exists. An integrator that wants it adds a drop-in:
+
+    # tool       env                   dir              seal
+    valet-key    VALET_KEY_POOL_ROOT   valet-key-pool   no
+
+Without that drop-in, `VALET_KEY_POOL_ROOT` is not set and valet-key falls back
+to its own default pool root -- outside the seal. Add it.
+
+## 11. `work_group` and `claude_config` derive
 
 `work_group` defaults to the profile name; `claude_config` defaults to
 `<work_dir>/.config/claude`. `severance init` no longer scaffolds either.

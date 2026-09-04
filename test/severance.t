@@ -274,27 +274,37 @@ gget() {   # <home> -> the global include.path values
     git config --global --get-all include.path 2>/dev/null
 }
 
-# fresh install into an empty HOME: links + git include + valet-key shim.
+# fresh install into an empty HOME: LINKS ONLY. `severance install` configures
+# no other tool -- nobody installing a work/personal boundary expects it to
+# edit their git config, and which boxes get which integration is the
+# integrator's call. severance publishes the artifacts and audits the result;
+# placing them is somebody else's job.
 H1=$T/h1; mkdir -p "$H1"
 inst "$H1" install >/dev/null 2>&1 || fail "install exited non-zero"
 [ -L "$H1/.local/bin/severance" ] || fail "install: severance not linked"
 [ -L "$H1/.local/bin/work" ]      || fail "install: work not linked"
 [ -L "$H1/.local/libexec/severance" ] || fail "install: libexec not linked"
-gget "$H1" | grep -q work-context.gen || fail "install: git include not added"
-grep -q 'severance current' "$H1/.config/valet-key/context" \
-  || fail "install: valet-key hook not published"
+[ -L "$H1/.local/share/severance" ]   || fail "install: share not linked"
 
-# idempotent: a second run neither errors nor duplicates the git include.
-inst "$H1" install >/dev/null 2>&1 || fail "install (rerun) exited non-zero"
-[ "$(gget "$H1" | grep -c work-context.gen)" = 1 ] \
-  || fail "install: git include duplicated on rerun"
+# ...and it touched NOTHING else. These are the two it used to write.
+gget "$H1" | grep -q work-context.gen \
+  && fail "install wrote an include into the user's git config"
+[ -e "$H1/.config/valet-key/context" ] \
+  && fail "install wrote into valet-key's config dir"
 
-# GUARD: a host-managed (symlink) git config is left untouched.
-H2=$T/h2; mkdir -p "$H2/.config/git"
-: > "$H2/hostcfg"; ln -s "$H2/hostcfg" "$H2/.config/git/config"
-inst "$H2" install >/dev/null 2>&1 || fail "install (guarded) exited non-zero"
-[ -L "$H2/.config/git/config" ] || fail "install: clobbered host git config"
-[ -s "$H2/hostcfg" ] && fail "install: wrote an include into host git config"
+# It must SAY so rather than leaving the user to wonder why nothing is wired.
+hint=$(inst "$H1" install 2>&1) || fail "install (rerun) exited non-zero"
+case $hint in
+  *"NOT wired by install"*) ;;
+  *) fail "install did not report that integrations are unwired" ;;
+esac
+case $hint in
+  *"severance doctor"*) ;;
+  *) fail "install's hint does not point at doctor" ;;
+esac
+
+# idempotent: a second run is still links-only and still errors on nothing.
+[ -L "$H1/.local/bin/severance" ] || fail "install (rerun): link lost"
 
 # uninstall removes the ~/.local links.
 inst "$H1" uninstall >/dev/null 2>&1 || fail "uninstall exited non-zero"

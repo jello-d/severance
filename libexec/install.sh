@@ -1,9 +1,9 @@
 # install.sh - the STANDALONE installer (`severance install` / `uninstall`).
-# Symlinks the package into ~/.local and wires the host integrations a
-# provisioner (a host) would otherwise provide: the git includeIf and the
-# valet-key context shim. NEVER needed on a host-managed box -- a host already
-# symlinks the package and publishes the hooks -- so every host-owned step is
-# GUARDED (skips a managed symlink) and a stray run there is a safe no-op.
+# Symlinks the package into ~/.local, and NOTHING else. It does not configure
+# any other tool: severance publishes the artifacts it is integrated by
+# (share/hooks/) and audits the result (`severance doctor`), but placing them
+# is the integrator's job. NEVER needed on a host-managed box, where a
+# provisioner symlinks the package itself.
 # Sourced by bin/severance for the install/uninstall verbs.
 
 # The package (clone) root: bin/severance is $SEVERANCE_SELF, so root is two up.
@@ -18,60 +18,30 @@ _sev_cfg()    { echo "${XDG_CONFIG_HOME:-$HOME/.config}"; }
 
 _sev_ln() { mkdir -p "$(dirname "$2")"; ln -sfn "$1" "$2"; echo "  link $2"; }
 
-# Ensure git includes the generated fragment. SKIP when ~/.config/git/config is
-# a managed symlink (a host owns the include) -- never write into its repo.
-_wire_git_include() {
-  command -v git >/dev/null 2>&1 || return 0
-  _gc=$(_sev_cfg)/git/config
-  _gen=$(_sev_cfg)/git/work-context.gen
-  if [ -L "$_gc" ]; then
-    echo "  git config is host-managed; leaving the include to the host"
-    return 0
+# What severance does NOT do: wire other tools up to itself. `severance install`
+# links this package into ~/.local and stops there.
+#
+# It used to write an include.path into the user's global git config and drop a
+# hook into valet-key's config dir. Nobody installing a work/personal boundary
+# expects it to edit their git config, and special-casing git -- of all things
+# -- is the tell that it was the wrong layer. Which boxes get which integration
+# is the integrator's call: a provisioner places these, or a human does.
+#
+# severance still OWNS the content it is integrated BY (share/hooks/), and
+# `severance doctor` still REPORTS anything unwired. Publish the artifact,
+# audit the result, do not reach into someone else's config to arrange it.
+_wiring_hint() {
+  _cfg=$(_sev_cfg)
+  echo "severance: integrations are NOT wired by install (by design)."
+  echo "  Run 'severance doctor' to see what is missing. To wire by hand:"
+  echo "    git identity split:"
+  echo "      git config --global --add include.path \\"
+  echo "        $_cfg/git/work-context.gen"
+  if command -v valet-key >/dev/null 2>&1; then
+    echo "    valet-key ZDR seam:"
+    echo "      install -m 0755 $SEVERANCE_SHARE/hooks/valet-key-context \\"
+    echo "        $_cfg/valet-key/context"
   fi
-  if git config --global --get-all include.path 2>/dev/null \
-     | grep -qxF "$_gen"; then
-    echo "  git include present"
-  else
-    git config --global --add include.path "$_gen"
-    echo "  git include added -> $_gen"
-  fi
-}
-
-# Identifies a hook whose content severance OWNS, so a later install can safely
-# refresh it when severance's verbs move, while never clobbering a hand-written
-# or third-party one. The marker lives in the shipped artifact, so the copy
-# carries it and there is no second string to keep in step.
-_SEV_HOOK_MARK='severance-owned valet-key hook'
-
-# Publish the valet-key context shim so valet-key discovers our ZDR seam. Only
-# when valet-key is installed, and never over a host-managed (symlink) hook.
-_wire_valet_key() {
-  command -v valet-key >/dev/null 2>&1 || {
-    echo "  valet-key absent; skipping its context hook"; return 0; }
-  _hook=$(_sev_cfg)/valet-key/context
-  if [ -L "$_hook" ]; then
-    echo "  valet-key hook is host-managed; leaving it"; return 0; fi
-  # REFRESH a hook we own, rather than treating any existing file as done:
-  # severance's own verbs move, and a hook pinned to a retired spelling is
-  # worse than no hook (it fails at agent-launch time, far from here). The
-  # marker identifies content we own; a file without it was written by someone
-  # else and is left alone, loudly.
-  if [ -f "$_hook" ] && ! grep -q "$_SEV_HOOK_MARK" "$_hook" 2>/dev/null; then
-    echo "  valet-key hook exists and is not ours; leaving it" >&2
-    echo "  (it must call 'severance current' and 'severance guard')" >&2
-    return 0
-  fi
-  mkdir -p "$(dirname "$_hook")"
-  # COPY the shipped artifact rather than generating one here. The hook's
-  # content has exactly one home, share/hooks/valet-key-context, so a verb
-  # moving cannot leave this generator and that file disagreeing -- which is
-  # precisely how the last rename left a stale hook behind.
-  _src=$SEVERANCE_SHARE/hooks/valet-key-context
-  [ -r "$_src" ] || {
-    echo "  valet-key hook source missing: $_src" >&2; return 1; }
-  cp "$_src" "$_hook"
-  chmod +x "$_hook"
-  echo "  valet-key hook published -> $_hook"
 }
 
 _path_hint() {
@@ -97,9 +67,8 @@ sev_install() {
     _sec=$(basename "$(dirname "$_m")")
     _sev_ln "$_m" "$(_sev_shrdir)/man/$_sec/$(basename "$_m")"
   done
-  _wire_git_include
-  _wire_valet_key
   _path_hint "$_bin"
+  _wiring_hint
   echo "severance: done. Next: severance init <name>, then severance seal."
 }
 
@@ -113,6 +82,7 @@ sev_uninstall() {
   for _d in "$(_sev_libdir)/severance" "$(_sev_shrdir)/severance"; do
     [ -L "$_d" ] && { rm -f "$_d"; echo "  rm $_d"; }
   done
-  echo "severance: removed the ~/.local links. The git include and valet-key"
-  echo "  hook (if any) are left in place; remove them by hand if desired."
+  echo "severance: removed the ~/.local links. Any integration wiring (the"
+  echo "  git include, a valet-key hook) was never ours to write and is left"
+  echo "  alone; remove it where you configured it."
 }
