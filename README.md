@@ -32,9 +32,9 @@ lacking the group, is denied by the filesystem.
 `install` symlinks the package and does **nothing else**: it configures no
 other tool. Nobody installing a work/personal boundary expects it to edit their
 git config, and which boxes get which integration is the integrator's call.
-severance publishes the artifacts it is integrated by (`share/hooks/`) and
-`severance doctor` reports anything unwired, but placing them is somebody
-else's job.
+severance publishes the artifacts it is integrated by (`share/hooks/`), but
+placing them is somebody else's job, and so is checking that their end of the
+seam works.
 
 `install` is only for a standalone box. Under a provisioning layer (e.g. tackup)
 that already symlinks the package and owns the git/valet-key hooks, it is a
@@ -175,20 +175,17 @@ direction this must never fail in, so an unanswerable question exits 2.
 
 ## Integrations
 
-- **valet-key** (credential-slot pooling): the hook lives at
-  `share/hooks/valet-key-context` -- severance owns the CONTENT (it is the only
-  thing that knows its own verbs), an integrator owns the PLACEMENT. A
-  provisioner symlinks it; `severance install` copies it on a standalone box.
-  It routes each agent to the right account and refuses a personal agent
-  launched inside the enclave. Both find each other at
-  `~/.config/valet-key/context`; each also works alone.
+- **Credential routers / session managers**: anything that needs to know which
+  enclave a process is in calls `severance current`, and anything that needs to
+  be refused calls `severance guard`. That is the whole surface.
 
-  The hook is pure delegation and holds no logic, because valet-key reads a
-  hook's exit 0 as its answer whether or not it printed. `severance current`
-  printing nothing therefore means "not in an enclave" all the way through, and
-  no shim has to substitute a token for it. `severance doctor` audits the
-  installed hook for the CURRENT verbs, so a stale one is a failure rather than
-  "present".
+  Where a consumer's seam has its own shape, severance ships the ADAPTER's
+  content -- `share/hooks/` -- because it is the only thing that knows its own
+  verbs, and a consumer's copy going stale on a rename is a real failure we
+  have had. An integrator PLACES it. severance does not, and does not audit it:
+  reading and grading another tool's config is the same shape as writing it,
+  and only that tool can tell an answer from a failure on its own seam. It
+  checks its own end and stops there.
 
 ## Layout
 

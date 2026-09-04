@@ -65,8 +65,8 @@ fails loud rather than guessing a group.
 .B install \fR/\fB uninstall
 Standalone only: symlink the package into
 .I ~/.local
-and wire the git includeIf and the valet-key context shim (or remove them). A
-guarded no-op under a host that already manages those.
+Links ONLY: it configures no other tool. A guarded no-op under a host that
+already symlinks the package.
 .TP
 .B list
 List provisioned profiles;
@@ -90,8 +90,8 @@ the innermost wins: the group
 .B guard
 Exit 1, with a message on stderr, when the process is inside a work tree
 WITHOUT the enclave group; else exit 0. The kernel wall is the real
-enforcement; this is the fail-loud reminder, read by valet-key through
-.IR ~/.config/valet-key/context .
+enforcement; this is the fail-loud reminder, called by whatever needs to be
+refused before it touches work files.
 .TP
 .BI show " [profile]"
 Print the resolved settings for a profile (or the default). A HUMAN report for
@@ -126,10 +126,10 @@ provision.
 .TP
 .B doctor
 Whole-boundary health in one report: installation, records, integrations
-(git includeIf, valet-key shim), and the live wall + runner.
+(our own git identity fragment), and the live wall + runner.
 .TP
 .BR context " " resolve | guard
-The valet-key discovery seam (resolve the active account; refuse a personal
+The discovery seam (resolve the active account; refuse a personal
 account inside the work tree).
 .SH FILES
 .TP
@@ -170,7 +170,7 @@ uses still pins every internal name as public API. Exported internals are not
 an interface.
 .PP
 .B "severance context"
-was the earlier spelling of this seam, in valet-key's vocabulary rather than
+was the earlier spelling of this seam, in a consumer's vocabulary rather than
 severance's. It is retired and now exits 2 with a pointer:
 .B "context resolve"
 became

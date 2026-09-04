@@ -22,7 +22,7 @@ _sev_ln() { mkdir -p "$(dirname "$2")"; ln -sfn "$1" "$2"; echo "  link $2"; }
 # links this package into ~/.local and stops there.
 #
 # It used to write an include.path into the user's global git config and drop a
-# hook into valet-key's config dir. Nobody installing a work/personal boundary
+# hook into a consumer's config dir. Nobody installing a work/personal boundary
 # expects it to edit their git config, and special-casing git -- of all things
 # -- is the tell that it was the wrong layer. Which boxes get which integration
 # is the integrator's call: a provisioner places these, or a human does.
@@ -37,11 +37,9 @@ _wiring_hint() {
   echo "    git identity split:"
   echo "      git config --global --add include.path \\"
   echo "        $_cfg/git/work-context.gen"
-  if command -v valet-key >/dev/null 2>&1; then
-    echo "    valet-key ZDR seam:"
-    echo "      install -m 0755 $SEVERANCE_SHARE/hooks/valet-key-context \\"
-    echo "        $_cfg/valet-key/context"
-  fi
+  echo "  Consumers that read severance (a credential router, a session"
+  echo "  manager) ship or document their own hook; severance provides the"
+  echo "  content it is integrated by under $SEVERANCE_SHARE/hooks/."
 }
 
 _path_hint() {
@@ -82,7 +80,7 @@ sev_uninstall() {
   for _d in "$(_sev_libdir)/severance" "$(_sev_shrdir)/severance"; do
     [ -L "$_d" ] && { rm -f "$_d"; echo "  rm $_d"; }
   done
-  echo "severance: removed the ~/.local links. Any integration wiring (the"
-  echo "  git include, a valet-key hook) was never ours to write and is left"
-  echo "  alone; remove it where you configured it."
+  echo "severance: removed the ~/.local links. Any integration wiring was"
+  echo "  never ours to write and is left alone; remove it where you"
+  echo "  configured it."
 }

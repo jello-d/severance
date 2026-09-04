@@ -47,8 +47,8 @@ usage: severance <command> [args]
   check  [--seal|--runner]   audit; non-zero on drift (bare = both + validate)
   validate [profile]         lint profile records (before they provision)
   doctor                     whole-boundary health (install + wall + runner)
-  guard                      ZDR refuse: exit 1 inside a work tree without the
-                             enclave group (the valet-key seam)
+  guard                      ZDR refuse: exit 1 inside a work tree without
+                             the enclave group
 
 machine interface -- the STABLE contracts, consumed by other tools. Their
 output shape and exit codes will not change without a major version bump:

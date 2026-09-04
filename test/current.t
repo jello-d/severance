@@ -275,6 +275,9 @@ case $inst_out in
   *"NOT wired by install"*) ;;
   *) fail "install did not say integrations are unwired: '$inst_out'" ;;
 esac
+case $inst_out in
+  *valet*) fail "install's hint names a specific consumer" ;;
+esac
 # ...and it points at the artifact and at doctor rather than acting.
 case $inst_out in
   *"severance doctor"*) ;;
@@ -353,87 +356,18 @@ rc=0; out=$(hook_resolve 2>/dev/null) || rc=$?
 [ "$rc" != 0 ] || fail "hook: exit 0 when current could not answer"
 [ -z "$out" ] || fail "hook: printed '$out' when current could not answer"
 
-# --- doctor audits the shim for CORRECTNESS, not presence --------------------
-# A hook pinned to a retired verb is worse than a missing one: valet-key reads
-# a failing hook's exit 2 as "warn, then proceed", so the ZDR refuse silently
-# becomes a no-op. Presence alone reported exactly that state as [OK].
-mkdir -p "$VKC/valet-key"
-vk=$VKC/valet-key/context
+# --- severance does NOT audit a consumer's config ---------------------------
+# It used to grade $XDG_CONFIG_HOME/valet-key/context. Reading and grading
+# another tool's config file is the same shape as writing it, and worse, only
+# that tool can tell an answer from a failure on its own seam. The check moved
+# to the side that declared the seam; what stays here is the ARTIFACT, because
+# severance alone knows its own verbs.
+grep -q valet "$HERE/libexec/doctor.sh" &&
+  fail "doctor still reaches into a consumer's config"
+grep -rq "valet-key/context" "$HERE/libexec" &&
+  fail "libexec still names a consumer's config path"
 
-# Drives the REAL _doctor_valet_key, extracted from doctor.sh, rather than a
-# reimplementation: a test that copies the logic cannot catch that logic
-# drifting, which is the exact class of bug this audit exists to find.
-dvk=$(sed -n '/^_doctor_valet_key() {/,/^}/p' "$HERE/libexec/doctor.sh")
-[ -n "$dvk" ] || fail "could not extract _doctor_valet_key from doctor.sh"
-# PATH is pinned to THIS repo's bin so the audit is hermetic: it checks the
-# hook against a severance the test controls, not whatever copy the box has
-# deployed. The skew case below overrides it deliberately.
-audit() {
-  XDG_CONFIG_HOME="$VKC" NO_COLOR=1 LIBEXEC="$HERE/libexec" \
-    PATH="${AUDIT_PATH:-$HERE/bin:$PATH}" \
-    sh -c ". \"\$LIBEXEC/common.sh\"
-           $dvk
-           _doctor_valet_key
-           exit \$REPORT_RC" 2>&1
-}
-
-# The shipped generator's own output must pass its own audit. That is the loop
-# that was open: install wrote one string, doctor grepped another.
-cp "$hook" "$vk"; chmod +x "$vk"
-out=$(audit) || true
-case $out in
-  *"[OK]"*) ;;
-  *) fail "doctor: rejects the hook severance itself ships" ;;
-esac
-
-printf '#!/bin/sh\nexec severance context "$@"\n' > "$vk"
-# `|| true`: audit exits non-zero BY DESIGN here (it found drift), and that is
-# the case under test, so it must not trip this script's own set -e.
-out=$(audit) || true
-case $out in
-  *"[FAIL]"*) ;;
-  *) fail "doctor: a retired-verb shim did not FAIL: '$out'" ;;
-esac
-
-rm -f "$vk"
-out=$(audit) || true
-case $out in
-  *"[WARN]"*) ;;
-  *) fail "doctor: a missing shim did not warn" ;;
-esac
-
-# A shim naming NEITHER verb cannot be confirmed, so it warns rather than
-# passing. Silence here would let any unrelated file read as a wired boundary.
-printf '#!/bin/sh\nexit 0\n' > "$vk"
-out=$(audit) || true
-case $out in
-  *"[WARN]"*) ;;
-  *) fail "doctor: an unrecognised shim did not warn: '$out'" ;;
-esac
-case $out in
-  *"[OK]"*) fail "doctor: an unrecognised shim reported OK" ;;
-esac
-
-# A hook naming the right verbs still fails if the `severance` it EXECS does
-# not have them -- on a provisioned box that is the deployed copy, not this
-# one. valet-key reads the failed guard as "proceed", so a deploy skew disables
-# the ZDR refuse exactly the way a stale hook did. The audit must therefore
-# check the verbs RESOLVE, not merely that the text names them.
-cp "$hook" "$vk"; chmod +x "$vk"
-printf '#!/bin/sh\nexit 2\n' > "$VKC/bin/severance"   # a severance without them
-chmod +x "$VKC/bin/severance"
-out=$(AUDIT_PATH="$VKC/bin:$PATH" audit) || true
-case $out in
-  *"[FAIL]"*) ;;
-  *) fail "doctor: a stale deployed severance passed the audit: '$out'" ;;
-esac
-case $out in
-  *"lacks 'current'"*) ;;
-  *) fail "doctor: skew reported without naming the cause: '$out'" ;;
-esac
-rm -f "$VKC/bin/severance"
-
-# --- the retired verb fails CLOSED --------------------------------------------
+# --- the retired verb fails CLOSED -------------------------------------------
 # valet-key's guard seam reads exit 2 as "warn, then PROCEED" and anything else
 # as "refuse". A retired boundary verb exiting 2 turns a stale hook into a
 # silently disabled ZDR guard, so it must not be 2.
