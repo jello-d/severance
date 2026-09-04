@@ -96,10 +96,6 @@ if [ "$_rc" != 0 ]; then
   exit 1
 fi
 
-# Prompt label. Sourced from the work-context so it can't drift; change it here
-# only if you want the prompt to read differently from the context name.
-LABEL=${WC_LABEL:-work}
-
 # Acquire the group once via a same-uid sudo, then re-enter. sudo scrubs the
 # environment, so forward the live session resources env_load cannot
 # reconstruct: SSH_AUTH_SOCK, and the Wayland/X display + runtime dir so an app
@@ -139,7 +135,6 @@ fi
 unset WORK_REEXEC
 
 export CLAUDE_CONFIG_DIR="$WC_CLAUDE_CONFIG"
-export WORK_CONTEXT="$LABEL"
 unset ANTHROPIC_API_KEY
 
 # WORK_HOME: the sealed enclave root (= work_dir). Point every work-scoped tool
@@ -212,13 +207,17 @@ trap 'rm -f "$rc"' EXIT INT TERM
   echo '. "$HOME/lib/load_helper_funcs" path env sh_history nvm tfenv'
   echo 'env_load'
   echo 'sh_history_start'
-  printf "PS1='[%s]\$ '\n" "$LABEL"
+  # The enclave's own NAME, not a separate display string: one name for the
+  # boundary everywhere. An enclave wanting a different prompt re-sets PS1 in
+  # its .workrc, sourced LAST below -- a display preference belongs with the
+  # enclave, not in the boundary's record.
+  printf "PS1='[%s]\$ '\n" "$WC_PROFILE"
   # $ENV was only the bootstrap path to this rc; unset it so it does not leak
   # into children (it collides with apps that read ENV as a config var, e.g.
   # dotenv/Next), then source the enclave's own rc LAST so it can re-set ENV.
   echo 'unset ENV'
   printf '[ -r "%s/.workrc" ] && . "%s/.workrc"\n' "$WC_DIR" "$WC_DIR"
 } > "$rc"
-echo "work: $LABEL context (group=$WC_GROUP account=$WC_CLAUDE_CONFIG)" >&2
+echo "work: $WC_PROFILE (group=$WC_GROUP account=$WC_CLAUDE_CONFIG)" >&2
 echo "work: type 'exit' to leave." >&2
 ENV="$rc" "${SHELL:-/bin/sh}" -i

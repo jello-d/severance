@@ -69,7 +69,49 @@ writes nothing.
 Nothing in the fleet is affected today: the only provisioned profile anywhere
 is `manifest`, which is already a valid label.
 
-## 5. `work_group` and `claude_config` derive
+## 5. `label` is retired, and so is `WORK_CONTEXT`
+
+An enclave has exactly ONE name: the record's filename. `label` was a second,
+prettier alias for it, and every read was presentation -- the `work` prompt,
+the entry banner, two `seal` progress lines, and the `WORK_CONTEXT` export.
+
+Remove `label=` from every record. It is now an unknown key and records fail
+loud, so **update records BEFORE deploying this severance**: the reverse order
+is a hard parse failure. (An old severance reading a record without `label`
+merely prints a duller prompt, so record-first is the safe direction.)
+
+`WORK_CONTEXT` was exported by `work` and read by NOTHING -- not in severance,
+mux, valet-key, tackup, or any shell rc. It is deleted.
+
+The prompt now uses the profile name. An enclave that wants a different one
+sets `PS1` in its own `<work_dir>/.workrc`, which `work` sources last: a
+display preference belongs with the enclave, not in the boundary's record.
+
+`runner` now defaults to `<profile>-runner` rather than `<label>-runner`.
+Identical wherever label equalled the profile name, which was everywhere.
+
+## 6. `show --shell` is retired
+
+It was advertised as a stable contract for external consumers and had none.
+Every integrator reaches severance through `current` and `guard` -- one word
+and one exit code. A twelve-variable promise nobody used still pinned every
+internal name in the reader as public API.
+
+    eval "$(severance show --shell)"   ->  p=$(severance current)
+
+`severance show` remains as a human report. `show --shell` exits 2 and names
+the replacement rather than being silently reinterpreted as a profile name.
+
+## 7. service_user / service_overlay / service_overlay_write are removed
+
+The record's own comment already called them dormant ("the retired podman
+model used service_user / service_overlay ... unused now"), no profile
+anywhere set them, and both code paths were fully guarded on
+`[ -n "$WC_SERVICE_USER" ]` -- so they were inert. Removed along with
+`grant_overlay_acl` and `seal_service_overlay` (~43 lines) and the matching
+`check` audit. They are now unknown keys.
+
+## 8. `work_group` and `claude_config` derive
 
 `work_group` defaults to the profile name; `claude_config` defaults to
 `<work_dir>/.config/claude`. `severance init` no longer scaffolds either.

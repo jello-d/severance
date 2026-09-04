@@ -8,9 +8,6 @@
 #     directory is the whole wall; the children are left to the dev to own
 #   - the enclave CLAUDE.md (SEVERANCE_ENCLAVE_MD) is placed in work_dir so
 #     agents/humans there work with the ownership model, not against it
-#   - any declared service overlay is re-owned to <service_user>:<group> right
-#     after the seal (a rootless service reaches its bind mounts by owner, not
-#     group; group access does not cross the user namespace)
 #   - NO passwordless `work` grant (any legacy one is removed): entering work is
 #     a deliberate human sudo prompt, so an agent cannot silently cross the wall
 #   - the git includeIf fragment carries one block per profile (gitdir from
@@ -84,49 +81,6 @@ audit_repos() {
   done
 }
 
-# Service-overlay ACL. A rootless-container service reaches its bind-mounted
-# work files across the user namespace by OWNER identity or a named-user ACL
-# (matched on the container's host uid) -- a supplementary group like `work`
-# does not cross it -- so a work file the container does not own read-denies it
-# every run. Restore access with a named-user ACL (access AND DEFAULT) for the
-# service user, applied right after the seal. The default entry is inherited, so
-# a file written LATER by any user is born service-reachable -- this is what
-# survives an edit, where owner does not.
-grant_overlay_acl() {   # <perms> <rel-path>; sets _done
-  _p=$WC_DIR/$2
-  # Test existence AS ROOT: the tree is sealed root:<group> 2770, so the
-  # unprivileged user running this cannot traverse in and would read every
-  # path as absent -- silently skipping the grant (asserted!=real).
-  if ! sudo test -e "$_p"; then
-    echo "severance: service overlay '$_p' absent; skip" >&2
-    return 0
-  fi
-  sudo setfacl -R    -m u:"$WC_SERVICE_USER":"$1" "$_p"
-  sudo setfacl -R -d -m u:"$WC_SERVICE_USER":"$1" "$_p"
-  if ! sudo getfacl -p "$_p" 2>/dev/null \
-       | grep -q "^user:$WC_SERVICE_USER:"; then
-    echo "severance: service ACL for '$_p' did not stick" >&2
-    exit 1
-  fi
-  _done=1
-}
-seal_service_overlay() {
-  [ -n "$WC_SERVICE_USER" ] || return 0
-  [ -n "$WC_SERVICE_OVERLAY$WC_SERVICE_OVERLAY_WRITE" ] || return 0
-  if ! id "$WC_SERVICE_USER" >/dev/null 2>&1; then
-    echo "severance: service user '$WC_SERVICE_USER' absent (run runner);" >&2
-    echo "  overlay ACL not granted" >&2
-    return 0
-  fi
-  _done=0
-  for _rel in $WC_SERVICE_OVERLAY; do grant_overlay_acl rX "$_rel"; done
-  for _rel in $WC_SERVICE_OVERLAY_WRITE; do
-    grant_overlay_acl rwX "$_rel"
-  done
-  [ "$_done" = 1 ] && echo \
-    "severance: service overlay ACL granted (u:$WC_SERVICE_USER)"
-  return 0
-}
 
 # Seal an identity dir the same way as the work_dir gate: root-owned, 2770
 # (personal denied at traversal), + a default ACL new entries inherit. So a corp
@@ -182,7 +136,7 @@ place_claude_md() {
 
 # Provision the CURRENT profile's boundary (WC_* set by wc_load).
 _guard_one() {
-  echo "severance: applying '$WC_LABEL' (group $WC_GROUP)"
+  echo "severance: applying '$WC_PROFILE' (group $WC_GROUP)"
   getent group "$WC_GROUP" >/dev/null 2>&1 || sudo groupadd "$WC_GROUP"
   echo "severance: group '$WC_GROUP' present"
   if _permanent_member; then
@@ -203,7 +157,6 @@ _guard_one() {
   place_claude_md
   seal_gcloud_work
   seal_gemini_home
-  seal_service_overlay
 }
 
 sev_seal() {
@@ -257,7 +210,7 @@ _check_sealed_dir() {
 }
 
 _seal_check_one() {
-  echo "-- $WC_LABEL (group $WC_GROUP) --"
+  echo "-- $WC_PROFILE (group $WC_GROUP) --"
   if getent group "$WC_GROUP" >/dev/null 2>&1; then
     _ok "group '$WC_GROUP' present"
   else _bad "group '$WC_GROUP' missing"; fi
@@ -321,22 +274,6 @@ _seal_check_one() {
     _ok "sanctioned personal repos in work_dir: $WC_ENCLAVE_PERSONAL"
   fi
 
-  if [ -n "$WC_SERVICE_USER" ] \
-     && [ -n "$WC_SERVICE_OVERLAY$WC_SERVICE_OVERLAY_WRITE" ]; then
-    _seen=0 _bad_ov=
-    for _rel in $WC_SERVICE_OVERLAY $WC_SERVICE_OVERLAY_WRITE; do
-      _f=$(sudo -n getfacl -p "$WC_DIR/$_rel" 2>/dev/null \
-           || getfacl -p "$WC_DIR/$_rel" 2>/dev/null) || continue
-      _seen=1
-      printf '%s\n' "$_f" | grep -q "^user:$WC_SERVICE_USER:" \
-        || _bad_ov="$_bad_ov $_rel"
-    done
-    if [ "$_seen" = 0 ]; then
-      _ok "service overlay ACL unverifiable here (need work group)"
-    elif [ -n "$_bad_ov" ]; then
-      _bad "service overlay missing $WC_SERVICE_USER ACL:$_bad_ov"
-    else _ok "service overlay grants $WC_SERVICE_USER via named-user ACL"; fi
-  fi
 
   findings=$(audit_repos)
   if [ -n "$findings" ]; then

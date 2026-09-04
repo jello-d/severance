@@ -22,34 +22,30 @@ sev_list() {
   done
 }
 
-# single-quote $1 so an `eval` of the output reproduces it exactly.
-_sev_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
-
-# Show the resolved settings for a profile (or the resolved default). With
-# --shell, emit the WC_* as eval-able shell -- a STABLE read-only contract so an
-# external consumer (mux, any tool) does `eval "$(severance show --shell)"`
-# instead of sourcing severance's internal reader. Non-zero if none resolves.
+# Show the resolved settings for a profile (or the resolved default). A HUMAN
+# report for debugging a record: read it, do not parse it.
+#
+# `--shell` (an eval-able dump of every WC_*) is RETIRED. It was advertised as
+# a stable contract for external consumers and had none: mux and valet-key both
+# reach severance through `current` and `guard`, which are one word and one
+# exit code. A twelve-variable promise nobody made use of is not free -- it
+# pins every internal name in the reader as public API, and calling it stable
+# is a commitment. Exported internals are not an interface.
 sev_show() {
-  _shell=0 _prof=
+  _prof=
   for _a in "$@"; do
-    case "$_a" in --shell) _shell=1 ;; *) _prof=$_a ;; esac
+    case "$_a" in
+      --shell)
+        echo "severance: 'show --shell' is retired." >&2
+        echo "  Which enclave is this process in? -> severance current" >&2
+        echo "  Is this process allowed here?     -> severance guard" >&2
+        echo "  Debugging a record?               -> severance show" >&2
+        return 2 ;;
+      *) _prof=$_a ;;
+    esac
   done
-  if ! wc_load "$_prof"; then
-    [ "$_shell" = 1 ] && return 1
-    echo "severance: no profile resolves" >&2; return 1
-  fi
-  if [ "$_shell" = 1 ]; then
-    for _v in WC_PROFILE WC_LABEL WC_GROUP WC_DIR WC_CONFIG_ROOT \
-              WC_CLAUDE_CONFIG WC_GIT_REMOTE_GLOB WC_RUNNER \
-              WC_ENCLAVE_PERSONAL WC_SERVICE_USER WC_SERVICE_OVERLAY \
-              WC_SERVICE_OVERLAY_WRITE; do
-      eval "_val=\${$_v-}"
-      printf '%s=%s\n' "$_v" "$(_sev_shq "$_val")"
-    done
-    return 0
-  fi
+  wc_load "$_prof" || { echo "severance: no profile resolves" >&2; return 1; }
   printf 'profile=%s\n' "$WC_PROFILE"
-  printf 'label=%s\n' "$WC_LABEL"
   printf 'group=%s\n' "$WC_GROUP"
   printf 'dir=%s\n' "$WC_DIR"
   printf 'claude_config=%s\n' "$WC_CLAUDE_CONFIG"
@@ -132,7 +128,6 @@ sev_init() {
   [ -e "$_f" ] && { echo "severance: profile exists: $_f" >&2; return 1; }
   {
     printf '# severance profile: %s\n' "$_name"
-    printf 'label=%s\n' "$_name"
     printf 'work_dir=~/src/%s\n' "$_name"
     for _kv in "$@"; do printf '%s\n' "$_kv"; done
   } > "$_f"

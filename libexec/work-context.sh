@@ -16,15 +16,19 @@
 #      (multiple -> return 4 "specify one"; none -> return 1, personal-only).
 #
 # After a successful wc_load:
-#   WC_PROFILE WC_LABEL WC_GROUP WC_DIR WC_CLAUDE_CONFIG WC_GIT_REMOTE_GLOB
-#   WC_RUNNER WC_ENCLAVE_PERSONAL WC_SERVICE_USER WC_SERVICE_OVERLAY
-#   WC_SERVICE_OVERLAY_WRITE WC_CONFIG_ROOT
+#   WC_PROFILE WC_GROUP WC_DIR WC_CLAUDE_CONFIG WC_GIT_REMOTE_GLOB
+#   WC_RUNNER WC_ENCLAVE_PERSONAL WC_CONFIG_ROOT
 #
 # wc_load answers "what is profile X". The other question, "which enclave is
 # this PROCESS in", is wc_current: it scans every profile and ranks the caller's
 # group membership. Both live here so no command reimplements either.
 # WC_GROUP defaults to the PROFILE NAME when the record omits `work_group`.
-# WC_RUNNER defaults to <label>-runner when the record omits `runner`.
+# WC_RUNNER defaults to <profile>-runner when the record omits `runner`.
+#
+# An enclave has ONE name: the profile name. It is the identity callers select
+# and `severance current` publishes, the group, and a path component. There is
+# deliberately no second, prettier name for display -- an enclave that wants a
+# different prompt sets PS1 in its own .workrc, which `work` sources last.
 # WC_CONFIG_ROOT is WORK_HOME/.config (= WC_DIR/.config); per-tool work dirs
 # derive as $WC_CONFIG_ROOT/<tool>, and WC_CLAUDE_CONFIG derives from it unless
 # the record sets claude_config. See docs/work-home.md.
@@ -89,9 +93,8 @@ _wc_resolve() {   # [name]
 # failed or empty resolve. wc_load calls it first; wc_current calls it when the
 # scan finds nothing.
 wc_reset() {
-  WC_PROFILE= WC_LABEL= WC_GROUP= WC_DIR= WC_CLAUDE_CONFIG= WC_GIT_REMOTE_GLOB=
-  WC_RUNNER= WC_ENCLAVE_PERSONAL= WC_SERVICE_USER= WC_SERVICE_OVERLAY=
-  WC_SERVICE_OVERLAY_WRITE= WC_CONFIG_ROOT=
+  WC_PROFILE= WC_GROUP= WC_DIR= WC_CLAUDE_CONFIG= WC_GIT_REMOTE_GLOB=
+  WC_RUNNER= WC_ENCLAVE_PERSONAL= WC_CONFIG_ROOT=
 }
 
 wc_load() {   # [name]
@@ -102,16 +105,24 @@ wc_load() {   # [name]
     v=${v%"${v##*[![:space:]]}"}          # strip trailing whitespace
     case "$k" in
       ''|\#*) ;;
-      label)           WC_LABEL=$v ;;
       work_group)      WC_GROUP=$v ;;
       work_dir)        WC_DIR=$(wc_expand "$v") ;;
       claude_config)   WC_CLAUDE_CONFIG=$(wc_expand "$v") ;;
       git_remote_glob)  WC_GIT_REMOTE_GLOB=$v ;;
       runner)           WC_RUNNER=$v ;;
       enclave_personal) WC_ENCLAVE_PERSONAL=$v ;;
-      service_user)     WC_SERVICE_USER=$v ;;
-      service_overlay)  WC_SERVICE_OVERLAY=$v ;;
-      service_overlay_write) WC_SERVICE_OVERLAY_WRITE=$v ;;
+      # RETIRED keys get a pointer, not a bare "unknown key". A record is
+      # edited by a human, so the diagnostic should say what to do about it.
+      label)
+        echo "work-context: 'label' is retired ($_cfg)" >&2
+        echo "  An enclave has ONE name: this record's filename. For a" >&2
+        echo "  different prompt, set PS1 in <work_dir>/.workrc." >&2
+        return 2 ;;
+      service_user|service_overlay|service_overlay_write)
+        echo "work-context: '$k' is retired ($_cfg)" >&2
+        echo "  The named-user overlay ACL went with the podman runner." >&2
+        echo "  The rootless-docker runner reaches work_dir by GROUP." >&2
+        return 2 ;;
       *) echo "work-context: unknown key: $k ($_cfg)" >&2; return 2 ;;
     esac
   done < "$_cfg"
@@ -129,7 +140,7 @@ wc_load() {   # [name]
   # claude_config derives too unless overridden. See docs/work-home.md.
   WC_CONFIG_ROOT=$WC_DIR/.config
   [ -n "$WC_CLAUDE_CONFIG" ] || WC_CLAUDE_CONFIG=$WC_CONFIG_ROOT/claude
-  [ -n "$WC_RUNNER" ] || WC_RUNNER=${WC_LABEL:-$WC_PROFILE}-runner
+  [ -n "$WC_RUNNER" ] || WC_RUNNER=$WC_PROFILE-runner
   return 0
 }
 

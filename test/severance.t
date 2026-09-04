@@ -25,8 +25,8 @@ SEV=$SEVROOT/bin/severance
 # --- group (.inc), so grandfathered per profile ------------------------------
 rgg=$(sed -n '/^render_git_gen() {/,/^}/p' "$SEAL")
 mkdir -p "$T/pg"
-printf 'label=a\nwork_group=ga\nwork_dir=/wa\nclaude_config=~/.ca\n' > "$T/pg/a"
-printf 'label=b\nwork_group=gb\nwork_dir=/wb\nclaude_config=~/.cb\n' > "$T/pg/b"
+printf 'work_group=ga\nwork_dir=/wa\nclaude_config=~/.ca\n' > "$T/pg/a"
+printf 'work_group=gb\nwork_dir=/wb\nclaude_config=~/.cb\n' > "$T/pg/b"
 gen=$(WC_PROFILES_DIR="$T/pg" sh -c ". '$WCLIB'
 $rgg
 render_git_gen")
@@ -64,45 +64,6 @@ echo "$allow_out" | grep -q "personal-remote repo inside work_dir: $WT/nested" \
 echo "$allow_out" | grep -q "work-remote repo outside work_dir: $S/stray" \
   || fail "audit_repos: allowlist wrongly suppressed an outside work repo"
 
-# --- seal_service_overlay: rX read set, rwX write set, absent paths skipped ---
-goa=$(sed -n '/^grant_overlay_acl() {/,/^}/p' "$SEAL")
-sso=$(sed -n '/^seal_service_overlay() {/,/^}/p' "$SEAL")
-OV=$T/ov; mkdir -p "$OV/j/know" "$OV/j/prop"; : > "$OV/j/config" # j/gone absent
-mkdir -p "$T/sbin"
-cat > "$T/sbin/sudo" <<'EOF'
-#!/bin/sh
-[ "$1" = setfacl ] && { shift; echo "SETFACL $*"; exit 0; }
-[ "$1" = getfacl ] && { echo "user:svc:rwx"; exit 0; }
-exec "$@"
-EOF
-cat > "$T/sbin/id" <<EOF
-#!/bin/sh
-[ -f "$T/no_svc" ] && exit 1
-exit 0
-EOF
-chmod +x "$T/sbin"/*
-sso_run() {
-  env -i PATH="$T/sbin:/usr/bin:/bin" WC_SERVICE_USER=svc WC_GROUP=wg \
-    WC_DIR="$OV" WC_SERVICE_OVERLAY='j/config j/know j/gone' \
-    WC_SERVICE_OVERLAY_WRITE='j/prop' \
-    sh -c "$goa
-$sso
-seal_service_overlay" 2>&1
-}
-sso_out=$(sso_run)
-echo "$sso_out" | grep -q "SETFACL -R -m u:svc:rX $OV/j/config" \
-  || fail "seal_service_overlay: no rX access ACL on a read overlay path"
-echo "$sso_out" | grep -q "SETFACL -R -d -m u:svc:rX $OV/j/know" \
-  || fail "seal_service_overlay: no rX default ACL on a read overlay dir"
-echo "$sso_out" | grep -q "SETFACL -R -m u:svc:rwX $OV/j/prop" \
-  || fail "seal_service_overlay: no rwX ACL on a write overlay path"
-echo "$sso_out" | grep -q "j/gone' absent; skip" \
-  || fail "seal_service_overlay: did not skip an absent overlay path"
-: > "$T/no_svc"
-sso_out=$(sso_run)
-echo "$sso_out" | grep -q "SETFACL" \
-  && fail "seal_service_overlay: acted with the service user absent"
-rm -f "$T/no_svc"
 
 # --- place_claude_md: SEED a fresh enclave, never clobber its own doc ---------
 pcm=$(sed -n '/^place_claude_md() {/,/^}/p' "$SEAL")
@@ -136,7 +97,7 @@ grep -q 'enclave-owned edits' "$DST" || fail "seed: clobbered the enclave doc"
 # --- seal check: over a profiles dir; clean, then each wall knob driven red --
 R=$T/sealchk
 mkdir -p "$R/self/profiles" "$T/home/wt" "$T/bin" "$T/empty" "$R/enc"
-printf 'label=demo\nwork_group=wg\nwork_dir=~/wt\nclaude_config=~/.cw\n' \
+printf 'work_group=wg\nwork_dir=~/wt\nclaude_config=~/.cw\n' \
   > "$R/self/profiles/demo"
 # a git fragment matching render_git_gen over that profiles dir
 WC_PROFILES_DIR="$R/self/profiles" HOME="$T/home" sh -c ". '$WCLIB'
@@ -227,7 +188,7 @@ _next_subid_block $T/subuid")
 # --- runner check: iterate one profile 'demo' whose runner is 'r' ------------
 RR=$T/runchk
 mkdir -p "$RR/self/profiles" "$T/rbin" "$T/rhome"
-printf 'label=demo\nwork_group=wg\nwork_dir=~/wt\n' > "$RR/self/profiles/demo"
+printf 'work_group=wg\nwork_dir=~/wt\n' > "$RR/self/profiles/demo"
 printf 'claude_config=~/.cw\nrunner=r\n' >> "$RR/self/profiles/demo"
 printf 'r:100000:65536\n' > "$T/subuid.f"
 printf 'r:100000:65536\n' > "$T/subgid.f"
@@ -340,11 +301,11 @@ val good >/dev/null 2>&1 || fail "validate: rejected a good record"
 printf 'work_group=b\nwork_dir=%s\nclaude_config=~/.cb\n' "$T" > "$VD/broad"
 val broad >/dev/null 2>&1 && fail "validate: passed work_dir == HOME"
 # an invalid group name
-printf 'label=x\nwork_group=Bad Grp\nwork_dir=/w/x\nclaude_config=~/.cx\n' \
+printf 'work_group=Bad Grp\nwork_dir=/w/x\nclaude_config=~/.cx\n' \
   > "$VD/badgrp"
 val badgrp >/dev/null 2>&1 && fail "validate: passed an invalid group name"
 # a record that does not parse (missing required work_dir)
-printf 'label=m\nwork_group=m\nclaude_config=~/.cm\n' > "$VD/nowd"
+printf 'work_group=m\nclaude_config=~/.cm\n' > "$VD/nowd"
 val nowd >/dev/null 2>&1 && fail "validate: passed a record missing work_dir"
 
 # ============================ FORGET ========================================
@@ -395,25 +356,75 @@ hm init nope >/dev/null 2>&1 && fail "init: wrote on a host-managed box"
 [ -e "$FP/nope" ] && fail "init: created a record on a host-managed box"
 hm use keep >/dev/null 2>&1 && fail "use: wrote on a host-managed box"
 
-# show --shell emits eval-able WC_* (the stable consumer contract for mux etc).
+# `show --shell` is RETIRED: it was advertised as a stable contract for
+# external consumers and had none. It must fail LOUDLY and name what replaced
+# it, not be silently reinterpreted as a profile name.
 SD=$T/sd; mkdir -p "$SD"
-printf 'label=zz\nwork_group=zg\nwork_dir=/w/z\nclaude_config=~/.z\n' > "$SD/zz"
+printf 'work_group=zg\nwork_dir=/w/z\nclaude_config=~/.z\n' > "$SD/zz"
+sh_rc=0
+sh_err=$(env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$SD" \
+  "$SEV" show --shell 2>&1 >/dev/null) || sh_rc=$?
+[ "$sh_rc" = 2 ] || fail "show --shell: rc=$sh_rc, want 2 (retired)"
+case $sh_err in
+  *"severance current"*) ;;
+  *) fail "show --shell: retirement does not name the replacement: $sh_err" ;;
+esac
+
+# The human form still reports a record, and carries NO label field: an enclave
+# has one name, the profile name.
 sh_out=$(env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$SD" \
-  "$SEV" show --shell) || fail "show --shell exited non-zero"
-eval "$sh_out"
-[ "$WC_LABEL" = zz ]  || fail "show --shell: WC_LABEL wrong ($WC_LABEL)"
-[ "$WC_GROUP" = zg ]  || fail "show --shell: WC_GROUP wrong"
-[ "$WC_DIR" = /w/z ]  || fail "show --shell: WC_DIR wrong"
+  "$SEV" show) || fail "show exited non-zero"
+case $sh_out in
+  *"profile=zz"*) ;; *) fail "show: no profile line: $sh_out" ;;
+esac
+case $sh_out in
+  *label*) fail "show still reports a label field" ;;
+esac
 
 # claude_config DERIVES from work_dir when the record omits it (work-home): the
 # per-enclave config root is WORK_HOME/.config and claude lives under it.
-printf 'label=dv\nwork_group=dg\nwork_dir=/w/dv\n' > "$SD/dv"
+printf 'work_group=dg\nwork_dir=/w/dv\n' > "$SD/dv"
 dv_out=$(env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$SD" \
-  "$SEV" show --shell dv) || fail "show --shell (derive) exited non-zero"
-eval "$dv_out"
-[ "$WC_CONFIG_ROOT" = /w/dv/.config ] \
-  || fail "derive: WC_CONFIG_ROOT wrong ($WC_CONFIG_ROOT)"
-[ "$WC_CLAUDE_CONFIG" = /w/dv/.config/claude ] \
-  || fail "derive: claude_config did not derive ($WC_CLAUDE_CONFIG)"
+  "$SEV" show dv) || fail "show (derive) exited non-zero"
+case $dv_out in
+  *"claude_config=/w/dv/.config/claude"*) ;;
+  *) fail "derive: claude_config did not derive: $dv_out" ;;
+esac
+# ...and the runner name derives from the PROFILE, now that label is gone.
+case $dv_out in
+  *"runner=dv-runner"*) ;;
+  *) fail "derive: runner did not derive from the profile name: $dv_out" ;;
+esac
+
+# --- RETIRED record keys fail loud, and say what to do -----------------------
+# A record is edited by a human, so a key we removed should point at the
+# replacement rather than emit a bare "unknown key".
+RD=$T/rd; mkdir -p "$RD"
+for pair in "label:.workrc" "service_user:GROUP" \
+            "service_overlay:GROUP" "service_overlay_write:GROUP"; do
+  _k=${pair%%:*}; _want=${pair#*:}
+  printf '%s=x\nwork_dir=/w/r\n' "$_k" > "$RD/r"
+  rc=0
+  err=$(env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$RD" \
+    "$SEV" show r 2>&1 >/dev/null) || rc=$?
+  [ "$rc" = 0 ] && fail "retired key '$_k' was accepted"
+  case $err in
+    *"'$_k' is retired"*) ;;
+    *) fail "retired key '$_k' gave a bare error: $err" ;;
+  esac
+  case $err in
+    *"$_want"*) ;;
+    *) fail "retired key '$_k' did not point at the replacement: $err" ;;
+  esac
+done
+
+# A genuinely unknown key still gets the generic message.
+printf 'nonsense=x\nwork_dir=/w/r\n' > "$RD/r"
+err=$(env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$RD" \
+  "$SEV" show r 2>&1 >/dev/null) || true
+case $err in
+  *"unknown key: nonsense"*) ;;
+  *) fail "an unknown key lost its generic diagnostic: $err" ;;
+esac
 
 pass

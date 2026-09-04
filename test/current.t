@@ -301,11 +301,12 @@ esac
 dead=999999
 while [ -d "/proc/$dead" ]; do dead=$((dead + 1)); done
 rk="WC_GROUP=$PRIMARY; wc_group_rank"
-rc=0; sh -c ". '$WCLIB'; $rk \"$dead\"" || rc=$?
+rc=0; WC_PROFILES_DIR="$PG" sh -c ". '$WCLIB'; $rk \"$dead\"" || rc=$?
 [ "$rc" = 3 ] || fail "wc_group_rank: rc=$rc for an unreadable pid, want 3"
-rc=0; sh -c ". '$WCLIB'; $rk $$" || rc=$?
+rc=0; WC_PROFILES_DIR="$PG" sh -c ". '$WCLIB'; $rk $$" || rc=$?
 [ "$rc" = 0 ] || fail "wc_group_rank: rc=$rc for our own primary group, want 0"
-rc=0; sh -c ". '$WCLIB'; WC_GROUP=$NONE; wc_group_rank $$" || rc=$?
+rc=0; WC_PROFILES_DIR="$PG" \
+  sh -c ". '$WCLIB'; WC_GROUP=$NONE; wc_group_rank $$" || rc=$?
 [ "$rc" = 2 ] || fail "wc_group_rank: rc=$rc for a live non-member, want 2"
 
 # wc_current must PROPAGATE an unanswerable rank rather than let the remaining
@@ -316,13 +317,13 @@ rm -f "$PG"/*
 mkprof one "$NONE"
 mkprof two "$NONE"
 rc=0
-sh -c ". '$WCLIB'
+WC_PROFILES_DIR="$PG" sh -c ". '$WCLIB'
        wc_group_rank() { return 3; }
        wc_current $$" || rc=$?
 [ "$rc" = 2 ] || fail "wc_current: rc=$rc when a rank was unanswerable, want 2"
 # ...and a plain non-member scan still answers 1, so 2 is not just "any failure"
 rc=0
-sh -c ". '$WCLIB'
+WC_PROFILES_DIR="$PG" sh -c ". '$WCLIB'
        wc_group_rank() { return 2; }
        wc_current $$" || rc=$?
 [ "$rc" = 1 ] || fail "wc_current: rc=$rc for a live non-member, want 1"

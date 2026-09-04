@@ -94,7 +94,8 @@ enforcement; this is the fail-loud reminder, read by valet-key through
 .IR ~/.config/valet-key/context .
 .TP
 .BI show " [profile]"
-Print the resolved settings for a profile (or the default).
+Print the resolved settings for a profile (or the default). A HUMAN report for
+debugging a record: read it, do not parse it.
 .TP
 .BI use " profile" "\fR|\fB --clear"
 Set (or clear) the default-profile marker.
@@ -149,13 +150,24 @@ Select a profile (overridden by an explicit argument).
 .B SEVERANCE_PROFILES_DIR
 Override the profiles directory (a host points this at its records).
 .SH MACHINE INTERFACE
-.BR current ,
-.B guard
+.B current
 and
+.B guard
+are the STABLE contracts consumed by other tools: their output shape and exit
+codes will not change without a major version bump. Every other command is a
+human report or a mutation and is free to change its wording.
+.PP
+There is deliberately nothing else.
 .B "show --shell"
-are STABLE contracts consumed by other tools: their output shape and exit codes
-will not change without a major version bump. Every other command is a human
-report or a mutation and is free to change its wording.
+was a third such contract, an eval-able dump of every
+.BR WC_* ,
+and it had no consumers: every integrator reaches severance through
+.B current
+and
+.BR guard ,
+which are one word and one exit code. It is retired, because a promise nobody
+uses still pins every internal name as public API. Exported internals are not
+an interface.
 .PP
 .B "severance context"
 was the earlier spelling of this seam, in valet-key's vocabulary rather than

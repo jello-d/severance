@@ -66,14 +66,20 @@ Health, and tearing one down:
 
 `~/.config/severance/profiles/<name>`, one `key=value` per line:
 
-    label=work
     work_dir=~/src/work
     work_group=work                     # optional (default: the profile name)
     claude_config=~/.claude-work        # optional: default is inside the seal,
                                         #   at <work_dir>/.config/claude
     git_remote_glob=*work*              # optional: repo-consistency audit
-    runner=work-runner                  # optional (default <label>-runner)
+    runner=work-runner                  # optional (default <profile>-runner)
     enclave_personal=carveout/*         # optional: sanctioned personal subtrees
+
+An enclave has exactly **one name**: the record's filename. It is the identity
+`severance current` publishes, it derives `work_group`, and it is a path
+component. There is no separate display name -- an enclave that wants a
+different prompt sets `PS1` in its own `<work_dir>/.workrc`, which `work`
+sources last. A display preference belongs with the enclave, not in the
+boundary's record.
 
 A profile name is the enclave's **published identity**: the group name, a path
 component, and the token `severance current` hands to consumers that use it as
@@ -112,7 +118,14 @@ a human report or a mutation, free to change its wording.
   error); **2** could not answer (the pid is malformed or names no live
   process).
 - `severance guard` -- exit 0 ok, 1 refuse; the message goes to stderr.
-- `severance show --shell` -- eval-able `WC_*` assignments.
+
+There is deliberately nothing else. `show --shell` (an eval-able dump of every
+`WC_*`) was advertised here as a third stable contract and had no consumers at
+all: mux and valet-key both reach severance through `current` and `guard`,
+which are one word and one exit code. A twelve-variable promise nobody used is
+not free, because it pins every internal name in the reader as public API.
+Exported internals are not an interface. It is retired; `severance show`
+remains as a human report for debugging a record.
 
 `current` is a value, not a predicate, so a caller does
 `p=$(severance current)` and tests `[ -n "$p" ]`. There is deliberately no
