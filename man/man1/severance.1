@@ -25,6 +25,26 @@ enters an enclave: it acquires the group for the session via a human
 .BR sudo (8)
 prompt and runs a shell (or one command) with the enclave's account and
 environment. Nothing persists.
+.PP
+Two read-only verbs answer, without entering anything, whether a process is
+in an enclave. Both scan every provisioned profile rather than resolving one,
+so a process in a non-default profile's group is still reported; both take an
+optional
+.IR PID ,
+defaulting to the calling process; and neither ever prompts for
+.BR sudo (8)
+or re-executes, so both are safe with no controlling terminal.
+.TP
+.B work check \fR[\fIPID\fR]
+Predicate. Exit 0 when the process is in an enclave, 1 when it is not. No
+output.
+.TP
+.B work current \fR[\fIPID\fR]
+Value. Print the enclave's profile name, or nothing when there is none. Exits
+0 either way, so a caller can test the output for emptiness without also
+trapping a status. Where nested enclaves leave a process holding several
+groups, the innermost wins: the group
+.BR "sudo -g" " made primary."
 .SH COMMANDS
 .TP
 .B install \fR/\fB uninstall

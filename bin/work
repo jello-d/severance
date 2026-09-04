@@ -4,8 +4,10 @@
 #   work [profile]             interactive shell in the profile's tree, with its
 #                              group + account + a fixed [<label>] prompt.
 #   work [profile] <cmd> ...   run one command in that context.
-#   work [profile] check [PID] predicate: exit 0 in that group, else 1. No sudo,
-#                              re-exec, or output. PID defaults to self.
+#   work [profile] check [PID] predicate: exit 0 in an enclave, else 1. No
+#                              sudo, re-exec, or output. PID defaults to self.
+#   work [profile] current [PID] value: print the enclave's PROFILE NAME, or
+#                              nothing. Exits 0 either way. No sudo or re-exec.
 #
 # The profile arg is optional when exactly ONE is provisioned (the common case);
 # with several it is REQUIRED -- bare `work` then fails loud, never guessing a
@@ -14,7 +16,9 @@
 # nothing persists. Reads the severance profiles via work-context.sh. Sole sudo
 # entry point for the boundary.
 #
-# `check` exists so nothing else has to reimplement "am I in the work group".
+# `check` and `current` exist so nothing else has to reimplement "am I in the
+# work group" (the predicate) or "which enclave is this" (the value). Both are
+# the SAME scan -- current_profile below -- so the two can never disagree.
 # Callers that ask about another process (a tmux pane, say) must pass that
 # process's pid: the group is acquired by a child of the shell that ran `work`,
 # so the shell's own pid never holds it.
@@ -49,6 +53,110 @@ if [ "${WORK_REEXEC:-}" = 1 ]; then
 elif [ "$#" -gt 0 ] && wc_profiles 2>/dev/null | grep -qxF -- "$1"; then
   prof=$1; shift
 fi
+
+# Does THIS process hold $WC_GROUP at all? The entry path's test, and the
+# supplementary tier of group_rank below.
+in_group() {
+  case " $(id -Gn) " in
+    *" $WC_GROUP "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Rank a process's membership in $WC_GROUP: 0 = the group is PRIMARY, 1 =
+# supplementary only, 2 = not a member. The distinction is what makes the scan
+# correct under NESTING: `work A` from inside `work B` leaves the pid holding
+# BOTH groups, and `sudo -g` made the inner one primary, so a primary match is
+# the enclave you are actually in and a supplementary one is merely an enclave
+# you are still under.
+#
+# With no pid it speaks for THIS process through id(1), the same source
+# in_group and the entry path below use, so no answer can drift from work's
+# own. With a pid it must read /proc instead: id(1) can only speak for the
+# caller. Same two-tier question either way -- Gid: is the primary, Groups: the
+# supplementary set.
+group_rank() {                          # [pid]
+  if [ -z "${1:-}" ]; then
+    [ "$(id -gn)" = "$WC_GROUP" ] && return 0
+    in_group && return 1
+    return 2
+  fi
+  _st=/proc/$1/status
+  [ -r "$_st" ] || return 2
+  _gid=$(getent group "$WC_GROUP" 2>/dev/null | cut -d: -f3)
+  [ -n "$_gid" ] || return 2
+  [ "$(awk '/^Gid:/ { print $3; exit }' "$_st")" = "$_gid" ] && return 0
+  case " $(awk '/^Groups:/ { $1 = ""; print; exit }' "$_st") " in
+    *" $_gid "*) return 1 ;;
+  esac
+  return 2
+}
+
+# The ONE implementation behind both `current` and `check`: which enclave is
+# this process (or PID) in? Echoes the profile name, or nothing.
+#
+# It SCANS every provisioned profile rather than resolving one, because "which
+# am I in" is not "am I in the default one" -- on a multitenant box a process
+# in a non-default profile's group is still in an enclave, and wc_load alone
+# cannot pick it (with several profiles and no default marker it just fails).
+# A pinned profile arg narrows the scan to that one.
+#
+# The GROUP is the ground truth, never $WORK_PROFILE: that env var survives
+# into the session as session state, so trusting it would report what was
+# asserted rather than what the kernel actually granted.
+#
+# Two passes, because a primary match outranks a supplementary one and the
+# winner is not known until every profile has been ranked. A record that fails
+# to parse is real drift: let wc_load say so on stderr and keep scanning, so
+# one broken record can neither hide a good answer nor make this verb lie.
+current_profile() {                     # [pid]
+  _supp=
+  for _p in ${prof:-$(wc_profiles)}; do
+    wc_load "$_p" || continue
+    _r=0
+    if [ -n "${1:-}" ]; then group_rank "$1" || _r=$?
+    else group_rank || _r=$?; fi
+    [ "$_r" = 0 ] && { printf '%s\n' "$WC_PROFILE"; return 0; }
+    [ "$_r" = 1 ] && [ -z "$_supp" ] && _supp=$WC_PROFILE
+  done
+  [ -n "$_supp" ] && printf '%s\n' "$_supp"
+  return 0
+}
+
+# Parse the shared `[PID]` tail of both verbs into $_pid (empty = this
+# process), or exit 2. Same validation for each, so neither can be laxer.
+_verb_pid() {                           # <verb> <argc> [arg2]
+  _pid=
+  case $2 in
+    1) ;;
+    2) case $3 in
+         ''|*[!0-9]*) echo "work: $1: not a pid: $3" >&2; exit 2 ;;
+       esac
+       _pid=$3 ;;
+    *) echo "work: usage: work $1 [PID]" >&2; exit 2 ;;
+  esac
+}
+
+# Both verbs dispatch HERE, above wc_load and above any group juggling: they
+# must never sudo, re-exec, or print on the normal path. That placement is
+# required, not stylistic -- work treats an unrecognised arg1 as a command to
+# run, so falling through would reach the sudo re-exec below and HANG on a
+# TTY-less prompt. It is also above wc_load because both must still answer on a
+# multi-profile box, where wc_load alone exits.
+#
+# `current` is the VALUE form and exits 0 whether or not it found one, so a
+# caller can do `t=$(work current)` and test [ -n "$t" ] without also trapping
+# a status. `check` is the PREDICATE form, so its exit status IS the answer.
+if [ "${1:-}" = current ]; then
+  _verb_pid current $# "${2:-}"
+  current_profile "$_pid"
+  exit 0
+fi
+if [ "${1:-}" = check ]; then
+  _verb_pid check $# "${2:-}"
+  [ -n "$(current_profile "$_pid")" ] && exit 0 || exit 1
+fi
+
 _rc=0; wc_load "$prof" || _rc=$?
 if [ "$_rc" != 0 ]; then
   [ "$_rc" = 1 ] && echo "work: no work profile provisioned" >&2
@@ -58,42 +166,6 @@ fi
 # Prompt label. Sourced from the work-context so it can't drift; change it here
 # only if you want the prompt to read differently from the context name.
 LABEL=${WC_LABEL:-work}
-
-in_group() {
-  case " $(id -Gn) " in
-    *" $WC_GROUP "*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# Same question as in_group, asked about another process. id(1) can only speak
-# for the caller, so this reads the group set out of /proc: the effective gid
-# (sudo -g makes the work group primary) and then the supplementary set.
-in_group_pid() {                        # $1 = pid
-  _st=/proc/$1/status
-  [ -r "$_st" ] || return 1
-  _gid=$(getent group "$WC_GROUP" 2>/dev/null | cut -d: -f3)
-  [ -n "$_gid" ] || return 1
-  [ "$(awk '/^Gid:/ { print $3; exit }' "$_st")" = "$_gid" ] && return 0
-  case " $(awk '/^Groups:/ { $1 = ""; print; exit }' "$_st") " in
-    *" $_gid "*) return 0 ;;
-  esac
-  return 1
-}
-
-# Pure predicate, dispatched before any group juggling: `work check` must never
-# sudo, re-exec, or print. The no-arg form reuses in_group, the same test the
-# entry path below makes, so a caller's answer cannot drift from work's own.
-if [ "${1:-}" = check ]; then
-  case $# in
-    1) in_group && exit 0 || exit 1 ;;
-    2) case $2 in
-         ''|*[!0-9]*) echo "work: check: not a pid: $2" >&2; exit 2 ;;
-       esac
-       in_group_pid "$2" && exit 0 || exit 1 ;;
-    *) echo "work: usage: work check [PID]" >&2; exit 2 ;;
-  esac
-fi
 
 # Acquire the group once via a same-uid sudo, then re-enter. sudo scrubs the
 # environment, so forward the live session resources env_load cannot

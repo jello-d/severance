@@ -43,7 +43,9 @@ guarded no-op. `severance uninstall` removes the links.
 
     work                                # enter the (default) enclave
     work <cmd>                          # run one command in it
-    work check $$                       # predicate: in the enclave group?
+    work check $$                       # predicate: in an enclave? (exit 0/1)
+    work current                        # value: which one? (profile name, or
+                                        #   nothing; always exits 0)
 
 With several profiles, mark the active one:
 
