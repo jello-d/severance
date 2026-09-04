@@ -47,6 +47,7 @@ guarded no-op. `severance uninstall` removes the links.
     work run <profile> -- <cmd> ...     # ...in a named enclave
 
     severance current                   # which enclave is this process in?
+    severance current "$PID"            # ...or another process
 
 With several profiles, mark the active one:
 
@@ -107,14 +108,21 @@ will not change without a major version bump. Everything else in this README is
 a human report or a mutation, free to change its wording.
 
 - `severance current [PID]` -- the profile name on stdout, or nothing.
-  **Always exits 0.**
+  Exit **0** answered (empty output means "not in an enclave", which is not an
+  error); **2** could not answer (the pid is malformed or names no live
+  process).
 - `severance guard` -- exit 0 ok, 1 refuse; the message goes to stderr.
 - `severance show --shell` -- eval-able `WC_*` assignments.
 
-`current` is a value, not a predicate, which is why it exits 0 either way: a
-caller does `p=$(severance current)` and tests `[ -n "$p" ]` without also
-trapping a status. There is deliberately no separate predicate verb, so the two
-can never disagree.
+`current` is a value, not a predicate, so a caller does
+`p=$(severance current)` and tests `[ -n "$p" ]`. There is deliberately no
+separate predicate verb, so the two can never disagree.
+
+Not being in an enclave is not an error, so it is empty output and exit 0. But
+being *unable to tell* is: a mangled pid that silently printed nothing would
+report a process which IS behind the boundary as personal, and a caller testing
+only `[ -n "$p" ]` would believe it. A false negative on a ZDR wall is the one
+direction this must never fail in, so an unanswerable question exits 2.
 
 ## Integrations
 

@@ -310,7 +310,7 @@ inst "$H1" install >/dev/null 2>&1 || fail "install exited non-zero"
 [ -L "$H1/.local/bin/work" ]      || fail "install: work not linked"
 [ -L "$H1/.local/libexec/severance" ] || fail "install: libexec not linked"
 gget "$H1" | grep -q work-context.gen || fail "install: git include not added"
-grep -q 'severance context' "$H1/.config/valet-key/context" \
+grep -q 'severance current' "$H1/.config/valet-key/context" \
   || fail "install: valet-key hook not published"
 
 # idempotent: a second run neither errors nor duplicates the git include.

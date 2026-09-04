@@ -57,21 +57,38 @@ sev_show() {
 }
 
 # Which enclave is this process (or PID) in? Prints the profile name, or
-# nothing, and exits 0 EITHER WAY: this is a value, not a predicate, so a caller
-# does `p=$(severance current)` and tests [ -n "$p" ] without also trapping a
-# status. The predicate form is that test; there is deliberately no second verb
-# for it, so the two can never disagree.
+# nothing. This is a value, not a predicate, so a caller does
+# `p=$(severance current)` and tests [ -n "$p" ]. The predicate form is that
+# test; there is deliberately no second verb for it, so the two can never
+# disagree.
+#
+# Exit codes distinguish the two ways of printing nothing:
+#   0  answered. Empty output means "not in an enclave", which is not an error.
+#   2  could NOT answer: the pid is malformed, or names no live process.
+#
+# That second case is why this is not unconditionally exit 0. A mangled pid
+# that silently printed nothing would report a process which IS behind the
+# boundary as personal, and a caller testing only [ -n "$p" ] would believe it.
+# A false negative on a ZDR wall is the one direction this must never fail in,
+# so an unanswerable question is loud. The no-argument form asks about a
+# process that self-evidently exists, so it cannot hit the error path.
 #
 # A STABLE contract: one word on stdout, nothing on stderr on the normal path.
-# mux consumes it directly as its context-command.
+# mux consumes it directly as its context-command (a non-zero exit reads as
+# `global` there, which is correct: mux must not name a context we could not
+# determine).
 sev_current() {   # [pid]
+  [ "$#" -le 1 ] || { echo "usage: severance current [PID]" >&2; return 2; }
   case ${1:-} in
     '') ;;
     *[!0-9]*) echo "severance: current: not a pid: $1" >&2; return 2 ;;
   esac
-  [ "$#" -le 1 ] || { echo "usage: severance current [PID]" >&2; return 2; }
-  wc_current "${1:-}" || return 0
-  printf '%s\n' "$WC_CURRENT"
+  _rc=0; wc_current "${1:-}" || _rc=$?
+  case $_rc in
+    0) printf '%s\n' "$WC_CURRENT" ;;
+    1) ;;                                 # outside every enclave: silent, ok
+    *) echo "severance: current: no such process: $1" >&2; return 2 ;;
+  esac
 }
 
 # Set (or clear) the default-profile marker.

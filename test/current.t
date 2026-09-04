@@ -115,14 +115,28 @@ mkprof alpha "$PRIMARY"
 out=$(sev current $$) || fail "current PID: non-zero exit"
 [ "$out" = alpha ] || fail "current PID: got '$out', want 'alpha'"
 
-# A pid with no /proc entry is simply not in a group, never an error. Asked
-# WHILE alpha would match for this process, so an implementation that ignored
-# the pid and answered for itself would wrongly print alpha here.
-out=$(sev current 999999) || fail "current: non-zero exit on a dead pid"
+# A pid naming NO LIVE PROCESS is unanswerable, and must be an ERROR rather
+# than a silent empty answer. Silence would report a process that IS behind the
+# boundary as personal, and a caller testing only [ -n "$p" ] would believe it.
+# Asked WHILE alpha would match for this process, so an implementation that
+# ignored the pid and answered for itself would wrongly print alpha here.
+dead=999999
+while [ -d "/proc/$dead" ]; do dead=$((dead + 1)); done
+out=$(sev current "$dead" 2>/dev/null) && fail "current: exit 0 on a dead pid"
+rc=0; sev current "$dead" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "current: got rc=$rc for a dead pid, want 2"
 [ -z "$out" ] || fail "current: answered '$out' for a dead pid (ignored PID?)"
+err=$(sev current "$dead" 2>&1 >/dev/null) || true
+case $err in
+  *"no such process"*) ;;
+  *) fail "current: dead pid did not say why: '$err'" ;;
+esac
+
+# ...and a LIVE pid outside every enclave is silent-and-zero, the other way of
+# printing nothing. The two cases must not be confused.
 
 mkprof alpha "$NONE"
-out=$(sev current $$) || fail "current PID: non-zero exit when outside"
+out=$(sev current $$) || fail "current PID: non-zero exit for a live pid"
 [ -z "$out" ] || fail "current PID: printed '$out' while outside"
 
 # --- it prints the PROFILE name, not the group name --------------------------
@@ -225,5 +239,119 @@ rc=0; XDG_CONFIG_HOME="$T/cfg" sev init my_work >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "init: got rc=$rc for an illegal name, want 2"
 [ -e "$T/cfg/severance/profiles/my_work" ] &&
   fail "init: scaffolded a record for an illegal name"
+
+# --- the published valet-key hook tracks severance's verbs --------------------
+# `severance install` writes this hook. When a verb moves, a hook pinned to the
+# old spelling is worse than no hook: it fails at agent-launch time, far from
+# here. So a hook WE wrote is rewritten, and one we did not is left alone.
+VKC=$T/vk
+mkdir -p "$VKC/bin"
+printf '#!/bin/sh\nexit 0\n' > "$VKC/bin/valet-key"
+chmod +x "$VKC/bin/valet-key"
+wire() {
+  ( . "$HERE/libexec/install.sh"
+    _sev_cfg() { echo "$VKC"; }
+    PATH="$VKC/bin:$PATH" _wire_valet_key ) 2>&1
+}
+wire >/dev/null
+hook=$VKC/valet-key/context
+[ -x "$hook" ] || fail "install: no valet-key hook published"
+dash -n "$hook" || fail "install: published hook is not valid sh"
+grep -q 'severance current' "$hook" ||
+  fail "hook does not call 'severance current'"
+grep -q 'severance guard' "$hook" || fail "hook does not call 'severance guard'"
+grep -q 'severance context' "$hook" &&
+  fail "hook still calls the retired 'context'"
+
+# The empty-to-personal mapping is load bearing: valet-key reads an EMPTY
+# answer as "no opinion" and falls through to its own cwd matcher, while
+# `severance current` prints nothing to mean "definitely not in an enclave".
+grep -q ':-personal' "$hook" || fail "hook forwards empty verbatim (see docs)"
+
+# A STALE hook we published before must be REWRITTEN, not skipped.
+cat > "$hook" <<'OLD'
+#!/bin/sh
+# severance-generated valet-key hook v2
+exec severance context "$@"
+OLD
+wire >/dev/null
+grep -q 'severance current' "$hook" ||
+  fail "install: stale own hook not rewritten"
+
+# A hook we did NOT write is left alone, and said so loudly.
+printf '#!/bin/sh\n# hand rolled\nexit 0\n' > "$hook"
+out=$(wire)
+grep -q 'hand rolled' "$hook" || fail "install: clobbered a foreign hook"
+case $out in
+  *"not ours"*) ;;
+  *) fail "install: left a foreign hook without saying so: '$out'" ;;
+esac
+
+# --- wc_group_rank reports UNANSWERABLE distinctly ---------------------------
+# Exercised directly, because wc_current's up-front existence check normally
+# shields it. Rank 3 is the mid-scan race: the process exits between that check
+# and the read. It must not collapse into rank 2 ("not a member").
+dead=999999
+while [ -d "/proc/$dead" ]; do dead=$((dead + 1)); done
+rk="WC_GROUP=$PRIMARY; wc_group_rank"
+rc=0; sh -c ". '$WCLIB'; $rk \"$dead\"" || rc=$?
+[ "$rc" = 3 ] || fail "wc_group_rank: rc=$rc for an unreadable pid, want 3"
+rc=0; sh -c ". '$WCLIB'; $rk $$" || rc=$?
+[ "$rc" = 0 ] || fail "wc_group_rank: rc=$rc for our own primary group, want 0"
+rc=0; sh -c ". '$WCLIB'; WC_GROUP=$NONE; wc_group_rank $$" || rc=$?
+[ "$rc" = 2 ] || fail "wc_group_rank: rc=$rc for a live non-member, want 2"
+
+# wc_current must PROPAGATE an unanswerable rank rather than let the remaining
+# profiles decide the answer is personal. That path is the mid-scan race, which
+# cannot be triggered on demand, so wc_group_rank is overridden to force it: a
+# LIVE pid (so the up-front existence check passes) whose rank comes back 3.
+rm -f "$PG"/*
+mkprof one "$NONE"
+mkprof two "$NONE"
+rc=0
+sh -c ". '$WCLIB'
+       wc_group_rank() { return 3; }
+       wc_current $$" || rc=$?
+[ "$rc" = 2 ] || fail "wc_current: rc=$rc when a rank was unanswerable, want 2"
+# ...and a plain non-member scan still answers 1, so 2 is not just "any failure"
+rc=0
+sh -c ". '$WCLIB'
+       wc_group_rank() { return 2; }
+       wc_current $$" || rc=$?
+[ "$rc" = 1 ] || fail "wc_current: rc=$rc for a live non-member, want 1"
+
+# --- the published hook BEHAVES, not just greps ------------------------------
+# Driven against a stub `severance` so each of current's three outcomes is
+# exercised through the hook the way valet-key will call it.
+mkdir -p "$VKC/stub"
+rm -f "$hook"                       # the foreign-hook case above left one, and
+wire >/dev/null                     # wire correctly refuses to overwrite it
+sev_stub() {   # <stdout> <exit>
+  { echo '#!/bin/sh'
+    echo 'case "$1" in'
+    printf '  current) printf %%s "%s"; exit %s ;;\n' "$1" "$2"
+    echo '  *) exit 0 ;;'
+    echo 'esac'
+  } > "$VKC/stub/severance"
+  chmod +x "$VKC/stub/severance"
+}
+hook_resolve() { PATH="$VKC/stub:$PATH" "$hook" resolve; }
+
+sev_stub "manifest
+" 0
+out=$(hook_resolve) || fail "hook: non-zero for an in-enclave answer"
+[ "$out" = manifest ] || fail "hook: got '$out', want 'manifest'"
+
+sev_stub "" 0
+out=$(hook_resolve) || fail "hook: non-zero for a live personal answer"
+[ "$out" = personal ] || fail "hook: got '$out' for empty, want 'personal'"
+
+# The load-bearing one: `current` could NOT determine the context. Resolving
+# that to `personal` would be a false negative on the ZDR wall, so the hook
+# must fail rather than answer.
+sev_stub "" 2
+rc=0; out=$(hook_resolve 2>/dev/null) || rc=$?
+[ "$rc" != 0 ] || fail "hook: exit 0 when current could not answer"
+[ "$out" != personal ] || fail "hook: called an unanswerable context personal"
 
 pass

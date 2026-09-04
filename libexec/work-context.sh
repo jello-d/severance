@@ -139,7 +139,10 @@ wc_load() {   # [name]
 # anything else are one implementation rather than several that can disagree.
 
 # Rank a process's membership in $WC_GROUP: 0 = the group is PRIMARY, 1 =
-# supplementary only, 2 = not a member. The distinction is what makes wc_current
+# supplementary only, 2 = not a member, 3 = UNANSWERABLE (the pid's /proc entry
+# cannot be read, so the process is gone or never existed). 3 is distinct from
+# 2 on purpose: "I could not look" must never be reported as "not in an
+# enclave". The distinction is what makes wc_current
 # correct under NESTING: entering enclave A from inside enclave B leaves the pid
 # holding BOTH groups, and `sudo -g` made the inner one primary, so a primary
 # match is the enclave you are actually in and a supplementary one is merely an
@@ -155,7 +158,7 @@ wc_group_rank() {   # [pid]
     return 2
   fi
   _wc_st=/proc/$1/status
-  [ -r "$_wc_st" ] || return 2
+  [ -r "$_wc_st" ] || return 3
   _wc_gid=$(getent group "$WC_GROUP" 2>/dev/null | cut -d: -f3)
   [ -n "$_wc_gid" ] || return 2
   [ "$(awk '/^Gid:/ { print $3; exit }' "$_wc_st")" = "$_wc_gid" ] && return 0
@@ -166,9 +169,16 @@ wc_group_rank() {   # [pid]
 }
 
 # wc_current - which enclave is a process in? Sets WC_CURRENT to the profile
-# name (empty when none) and returns 0 inside an enclave, 1 outside. On a match
-# the WC_* are left LOADED for that profile; with no match they are cleared, so
-# a caller can never read a stale profile's settings.
+# name (empty when none) and returns:
+#   0  in an enclave (WC_CURRENT set, WC_* LOADED for that profile)
+#   1  not in one (WC_CURRENT empty, WC_* cleared, so a caller can never read a
+#      stale profile's settings)
+#   2  UNANSWERABLE: the pid does not exist, so there is nothing to rank
+#
+# 2 is not a pedantic distinction. A mangled or stale pid that silently ranked
+# as "not in an enclave" would report a process that IS behind the boundary as
+# personal -- a false negative on a ZDR wall, which is the one direction this
+# must never fail in. Callers turn 2 into an error; only 1 means personal.
 #
 # It SCANS every provisioned profile rather than resolving one, because "which
 # am I in" is not "am I in the default one": on a multitenant box a process in a
@@ -185,11 +195,18 @@ wc_group_rank() {   # [pid]
 # broken record can neither hide a good answer nor make this lie.
 wc_current() {   # [pid]
   WC_CURRENT= _wc_supp=
+  # Establish the pid EXISTS before ranking it. Without this the scan would
+  # rank a dead pid as "not a member" of every profile and answer personal.
+  if [ -n "${1:-}" ] && [ ! -d "/proc/$1" ]; then wc_reset; return 2; fi
   for _wc_p in $(wc_profiles); do
     wc_load "$_wc_p" || continue
     _wc_r=0
     if [ -n "${1:-}" ]; then wc_group_rank "$1" || _wc_r=$?
     else wc_group_rank || _wc_r=$?; fi
+    # Rank 3 = the /proc entry went away mid-scan (the process exited between
+    # the check above and now). Still unanswerable, so bail rather than let the
+    # remaining profiles decide the answer is personal.
+    [ "$_wc_r" = 3 ] && { wc_reset; return 2; }
     [ "$_wc_r" = 0 ] && { WC_CURRENT=$WC_PROFILE; return 0; }
     [ "$_wc_r" = 1 ] && [ -z "$_wc_supp" ] && _wc_supp=$WC_PROFILE
   done

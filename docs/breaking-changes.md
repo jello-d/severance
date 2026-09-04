@@ -34,7 +34,11 @@ predicate is a test on the value, so the two cannot disagree.
     work check "$PID"        ->  [ -n "$(severance current "$PID")" ]
     work current             ->  severance current
 
-`severance current` prints the profile name or nothing, and **always exits 0**.
+`severance current` prints the profile name or nothing. Exit 0 means it
+answered (empty then means "not in an enclave"); exit 2 means it could not
+answer, because the pid was malformed or named no live process. Do not collapse
+those: `work check` returned 1 for both, which is exactly the conflation being
+removed.
 
 ## 3. `work` takes a closed verb set
 
@@ -83,20 +87,28 @@ straight at severance instead:
 `link/config/mux/context` (the older 70-line hook that supplied a tmux style
 string) can go at the same time if every machine is on mux 0.3.
 
-**Update `link/config/valet-key/context`.** It currently execs
-`severance context "$@"`. It must now map the two verbs, and supply the
-`personal` token that `current` no longer prints:
+**Decide whether to keep shipping `link/config/valet-key/context` at all.**
+severance's own `install` publishes exactly this hook
+(`libexec/install.sh:_wire_valet_key`) and now generates the correct version
+for the new verbs. tackup ships a second copy as a symlink, and severance
+detects the symlink and defers to it ("host-managed; leaving it"), so the
+tackup copy wins on this box and would keep calling the retired `context`.
+
+Either drop tackup's copy and let `severance install` own it, or update
+tackup's copy to match what severance now generates:
 
     set -eu
     command -v severance >/dev/null 2>&1 || {
       case "${1:-}" in resolve) echo personal ;; esac; exit 0; }
     case "${1:-}" in
-      resolve) p=$(severance current); printf '%s\n' "${p:-personal}" ;;
+      resolve) p=$(severance current) || exit 1
+               printf '%s\n' "${p:-personal}" ;;
       guard)   shift; exec severance guard "$@" ;;
-      *)       exit 0 ;;
     esac
+    exit 0
 
-That `${p:-personal}` is load-bearing, not cosmetic. See the valet-key note.
+Both the `${p:-personal}` and the `|| exit 1` are load-bearing, not cosmetic.
+See the valet-key note.
 
 **Audit for the old `work` grammar.** Any `work <cmd>` in a script becomes
 `work run -- <cmd>`. Scripted callers fail loudly (exit 2, usage on stderr)
@@ -132,6 +144,15 @@ So a shim that forwards `current` verbatim would **silently re-enable cwd
 matching in the personal case** -- a quiet behaviour change, which is why the
 tackup shim above maps empty to `personal` explicitly rather than passing it
 through.
+
+**The deeper fix is in the hook contract, not the shim.** `resolve` conflates
+two different answers into "empty": "I have no opinion" and "I definitely have
+no special context". A provider that knows the answer is personal cannot say so
+without inventing a token. Consider: exit 0 with a token means that context,
+exit 0 with empty means *definitely baseline* (do not run the cwd matcher), and
+a NON-ZERO exit means "cannot answer" and is the only thing that should fall
+through to heuristics. That deletes the need for the `${p:-personal}` mapping
+in every shim, everywhere.
 
 **Consider adding name validation.** valet-key currently validates profile
 names not at all. If the fleet is standardising on DNS labels as identity,

@@ -74,9 +74,14 @@ List provisioned profiles;
 marks the resolved default.
 .TP
 .B current \fR[\fIPID\fR]
-Print the profile name of the enclave the process is in, or nothing. Exits 0
-either way: this is a value, not a predicate, so a caller tests the output for
-emptiness without also trapping a status. It SCANS every provisioned profile
+Print the profile name of the enclave the process is in, or nothing. This is a
+value, not a predicate, so a caller tests the output for emptiness. Exit 0
+means ANSWERED, and empty output then means "not in an enclave", which is not
+an error. Exit 2 means it could NOT answer: the pid is malformed, or names no
+live process. That distinction matters because a mangled pid which silently
+printed nothing would report a process that IS behind the boundary as
+personal, and a false negative is the one direction a ZDR wall must never fail
+in. It SCANS every provisioned profile
 rather than resolving one, so a process in a non-default profile's group is
 still reported. Where nested enclaves leave a process holding several groups,
 the innermost wins: the group
