@@ -32,12 +32,13 @@ export SEVERANCE_SHARE
 _usage() {
   cat >&2 <<'EOF'
 usage: severance <command> [args]
-  install | uninstall        standalone: (un)link into ~/.local + host hooks
+  install | uninstall        standalone: (un)link into ~/.local. Links ONLY;
+                             it configures no other tool
   list                       provisioned profiles (* marks the default)
-  show   [profile] [--shell] the resolved settings (--shell: eval-able WC_*)
+  show   [profile]           the resolved settings, as a human report
   use    <profile>|--clear   set (or clear) the default-profile marker
   current [PID]              which enclave a process is IN (profile name, or
-                             nothing); always exits 0
+                             nothing); non-zero only if it cannot tell
   init   <name> [key=val..]  scaffold a new profile record
   seal   [profile...]        provision the work boundary (privileged)
   runner [profile...]        provision the rootless-docker runner (privileged)
@@ -49,11 +50,13 @@ usage: severance <command> [args]
   guard                      ZDR refuse: exit 1 inside a work tree without the
                              enclave group (the valet-key seam)
 
-machine interface -- STABLE contracts, consumed by other tools. Their output
-shape and exit codes will not change without a major version bump:
-  current [PID]              one word on stdout, or nothing. Always exits 0.
+machine interface -- the STABLE contracts, consumed by other tools. Their
+output shape and exit codes will not change without a major version bump:
+  current [PID]              exit 0 = answered (one word, or nothing when the
+                             process is in no enclave); exit 2 = could NOT
+                             answer (bad pid, or no such process)
   guard                      exit 0 ok / 1 refuse. Message on stderr.
-  show --shell               eval-able WC_* assignments.
+There is deliberately nothing else. `show` is a human report, not a contract.
 EOF
   exit 2
 }

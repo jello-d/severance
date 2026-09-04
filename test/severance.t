@@ -447,4 +447,47 @@ case $err in
   *) fail "an unknown key lost its generic diagnostic: $err" ;;
 esac
 
+# --- `--help` must not drift from what the code does ------------------------
+# Three separate times this session, usage text outlived the behaviour it
+# described: it advertised `show --shell` after that was retired, claimed
+# `current` "always exits 0" after it grew an error case, and said install
+# wires host hooks after it stopped. Docs drifting from behaviour is not
+# cosmetic here -- usage IS the contract an integrator reads.
+help_out=$(env -i PATH="/usr/bin:/bin" HOME="$T" "$SEV" --help 2>&1 || true)
+
+# Nothing retired may be advertised.
+for gone in -- --shell "work check" "work current" "severance context" \
+            label service_user service_overlay; do
+  [ "$gone" = -- ] && continue
+  case $help_out in
+    *"$gone"*) fail "--help still advertises the retired '$gone'" ;;
+  esac
+done
+
+# Every verb the dispatcher accepts is documented, so a reader can find it.
+# `context` is the deliberate exception: retired, kept only as a loud error,
+# and listing it would invite use.
+verbs=$(sed -n '/^case \$cmd in/,/^esac/p' "$SEV" \
+        | sed -n 's/^  \([a-z|]*\)).*/\1/p' | tr '|' '\n' | grep -v '^$')
+[ -n "$verbs" ] || fail "could not extract the verb list from bin/severance"
+for v in $verbs; do
+  case $v in context) continue ;; esac
+  case $help_out in
+    *"$v"*) ;;
+    *) fail "verb '$v' is dispatched but absent from --help" ;;
+  esac
+done
+
+# ...and the machine-interface block names exactly the two stable contracts.
+case $help_out in
+  *"machine interface"*) ;;
+  *) fail "--help lost the machine-interface section" ;;
+esac
+for c in current guard; do
+  case $help_out in
+    *"machine interface"*"$c"*) ;;
+    *) fail "--help does not list '$c' as a stable contract" ;;
+  esac
+done
+
 pass
