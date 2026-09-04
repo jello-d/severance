@@ -126,10 +126,20 @@ direction this must never fail in, so an unanswerable question exits 2.
 
 ## Integrations
 
-- **valet-key** (credential-slot pooling): if installed, severance publishes a
-  `~/.config/valet-key/context` shim so valet-key routes each agent to the right
-  account and refuses a personal agent launched inside the enclave. Both find
-  each other at that well-known path; each also works alone.
+- **valet-key** (credential-slot pooling): the hook lives at
+  `share/hooks/valet-key-context` -- severance owns the CONTENT (it is the only
+  thing that knows its own verbs), an integrator owns the PLACEMENT. A
+  provisioner symlinks it; `severance install` copies it on a standalone box.
+  It routes each agent to the right account and refuses a personal agent
+  launched inside the enclave. Both find each other at
+  `~/.config/valet-key/context`; each also works alone.
+
+  The hook is pure delegation and holds no logic, because valet-key reads a
+  hook's exit 0 as its answer whether or not it printed. `severance current`
+  printing nothing therefore means "not in an enclave" all the way through, and
+  no shim has to substitute a token for it. `severance doctor` audits the
+  installed hook for the CURRENT verbs, so a stale one is a failure rather than
+  "present".
 
 ## Layout
 
@@ -137,7 +147,8 @@ direction this must never fail in, so an unanswerable question exits 2.
     bin/work            the enclave-entry command
     libexec/  the implementation (work-context reader, seal, runner,
                         check, ZDR guard, profile mgmt, installer)
-    share/    the generic enclave note + the runner relay unit
+    share/    the generic enclave note, the runner relay unit, and
+                        hooks/ (integration hooks severance owns the text of)
 
 ## Safety notes
 

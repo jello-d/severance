@@ -251,6 +251,7 @@ chmod +x "$VKC/bin/valet-key"
 wire() {
   ( . "$HERE/libexec/install.sh"
     _sev_cfg() { echo "$VKC"; }
+    SEVERANCE_SHARE=$HERE/share
     PATH="$VKC/bin:$PATH" _wire_valet_key ) 2>&1
 }
 wire >/dev/null
@@ -263,15 +264,21 @@ grep -q 'severance guard' "$hook" || fail "hook does not call 'severance guard'"
 grep -q 'severance context' "$hook" &&
   fail "hook still calls the retired 'context'"
 
-# The empty-to-personal mapping is load bearing: valet-key reads an EMPTY
-# answer as "no opinion" and falls through to its own cwd matcher, while
-# `severance current` prints nothing to mean "definitely not in an enclave".
-grep -q ':-personal' "$hook" || fail "hook forwards empty verbatim (see docs)"
+# The hook is PURE DELEGATION now. It used to carry a `${p:-personal}` mapping
+# because valet-key read an empty resolve as "no opinion"; valet-key now treats
+# exit 0 as the answer whether or not it printed, so a mapping here would be a
+# second opinion about what empty means.
+grep -q ':-personal' "$hook" && fail "hook still carries the personal mapping"
+
+# It must be the SHIPPED artifact, byte for byte: one content, several
+# placements, so a verb cannot move and leave a stale copy behind.
+cmp -s "$hook" "$HERE/share/hooks/valet-key-context" ||
+  fail "published hook differs from share/hooks/valet-key-context"
 
 # A STALE hook we published before must be REWRITTEN, not skipped.
 cat > "$hook" <<'OLD'
 #!/bin/sh
-# severance-generated valet-key hook v2
+# severance-owned valet-key hook
 exec severance context "$@"
 OLD
 wire >/dev/null
@@ -337,22 +344,28 @@ sev_stub() {   # <stdout> <exit>
 }
 hook_resolve() { PATH="$VKC/stub:$PATH" "$hook" resolve; }
 
+# A PASS-THROUGH: severance's answer AND status go straight to valet-key,
+# which now reads exit 0 as the answer whether or not it printed.
 sev_stub "manifest
 " 0
 out=$(hook_resolve) || fail "hook: non-zero for an in-enclave answer"
 [ "$out" = manifest ] || fail "hook: got '$out', want 'manifest'"
 
+# Empty + exit 0 stays empty + exit 0. Substituting a default token here would
+# be a SECOND opinion about what empty means; valet-key owns that mapping now.
 sev_stub "" 0
-out=$(hook_resolve) || fail "hook: non-zero for a live personal answer"
-[ "$out" = personal ] || fail "hook: got '$out' for empty, want 'personal'"
+rc=0; out=$(hook_resolve) || rc=$?
+[ "$rc" = 0 ] || fail "hook: rc=$rc for a live personal answer, want 0"
+[ -z "$out" ] || fail "hook: invented '$out' for an empty answer"
 
-# The load-bearing one: `current` could NOT determine the context. Resolving
-# that to `personal` would be a false negative on the ZDR wall, so the hook
-# must fail rather than answer.
+# The load-bearing one: `current` could NOT determine the context. The hook
+# must pass that failure on, so valet-key falls back to its own rule rather
+# than treating an unanswerable context as the default -- which would be a
+# false negative on the ZDR wall.
 sev_stub "" 2
 rc=0; out=$(hook_resolve 2>/dev/null) || rc=$?
 [ "$rc" != 0 ] || fail "hook: exit 0 when current could not answer"
-[ "$out" != personal ] || fail "hook: called an unanswerable context personal"
+[ -z "$out" ] || fail "hook: printed '$out' when current could not answer"
 
 # --- doctor audits the shim for CORRECTNESS, not presence --------------------
 # A hook pinned to a retired verb is worse than a missing one: valet-key reads
