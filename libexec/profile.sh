@@ -26,7 +26,7 @@ sev_list() {
 # report for debugging a record: read it, do not parse it.
 #
 # `--shell` (an eval-able dump of every WC_*) is RETIRED. It was advertised as
-# a stable contract for external consumers and had none: mux and valet-key both
+# a stable contract for external consumers and had none: every one of them
 # reach severance through `current` and `guard`, which are one word and one
 # exit code. A twelve-variable promise nobody made use of is not free -- it
 # pins every internal name in the reader as public API, and calling it stable

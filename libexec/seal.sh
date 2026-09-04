@@ -119,7 +119,7 @@ seal_tool_dirs() {
 }
 
 # The sealed per-enclave CONFIG ROOT: WORK_HOME/.config (WORK_HOME = work_dir).
-# Per-tool work state -- agent configs, the valet-key work pool, the corp
+# Per-tool work state -- agent configs, a credential pool, the corp
 # creds -- migrates under here so ONE seal (the work_dir gate) protects every
 # credential store, not N scattered dirs. Sealed explicitly (belt-and-braces);
 # the gate's traversal denial is what actually keeps a same-uid personal process

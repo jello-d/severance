@@ -12,10 +12,10 @@
 #          an env var for an absent tool is harmless, and probing PATH on every
 #          `work` invocation is not free)
 #   env    the variable pointing the tool at its work dir, or `-` for none.
-#          This is a BASE: a launcher that selects per-profile (valet-key
-#          does, via its own adapters) overrides it at exec. The base is what
-#          a BARE invocation inside a work session gets, so it is the thing
-#          that keeps a direct call from falling back to the personal dir.
+#          This is a BASE. A launcher that selects per-profile overrides it at
+#          exec; the base is what a BARE invocation inside a work session gets,
+#          so it is the thing that keeps a direct call from falling back to the
+#          personal dir.
 #   dir    the directory UNDER the enclave config root (work_dir/.config)
 #   seal   yes = provision it root:<group> 2770 + default ACL, so the tool's
 #          credentials sit behind the SAME kernel wall as the tree; no = the

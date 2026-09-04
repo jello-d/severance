@@ -9,7 +9,7 @@
 #   severance check  [--seal|--runner] audit; non-zero on drift (bare = both)
 #
 # Self-locates its libexec/share beside the binary (through any install
-# symlink), like mux and valet-key. Idempotent; privileged verbs prompt sudo
+# symlink). Idempotent; privileged verbs prompt sudo
 # once up front (a no-op when a cache is already warm, e.g. under a host).
 set -eu
 
@@ -78,13 +78,14 @@ case $cmd in
   validate) . "$LIBEXEC/validate.sh"; sev_validate "$@" ;;
   doctor)   . "$LIBEXEC/doctor.sh"; sev_doctor "$@" ;;
   guard)    . "$LIBEXEC/guard.sh"; sev_guard "$@" ;;
-  # `context resolve|guard` was valet-key's vocabulary on severance's binary.
+  # `context resolve|guard` was a CONSUMER's vocabulary on severance's binary:
+  # two questions welded together because one integration asked them that way.
   # resolve retired into `current`; guard is a top-level verb. Kept as a loud
   # error, not a silent alias: a stale caller must be FIXED, not quietly served
   # by a shim that hides which spelling is live.
   #
   # Exit 1, NOT the conventional 2 for a usage error, because 2 is already
-  # spoken for in the contract this verb used to serve: valet-key's guard seam
+  # spoken for in the guard contract this verb used to serve: a veto seam that
   # reads 2 as "warn, then PROCEED" and anything else as "refuse". A retired
   # boundary verb must fail CLOSED. Exiting 2 here turned a stale hook into a
   # silently disabled ZDR guard, which is the precise failure this whole verb

@@ -9,11 +9,11 @@
 # matters most BEFORE `severance seal` has run, when the tree exists and the
 # wall does not.
 #
-# valet-key reads its $VALET_KEY_CONFIG/context hook for this; the published
-# hook is a thin shim that execs us, so valet-key and severance meet at one
-# well-known path with no host in the loop. The guard re-derives everything
-# itself and never trusts a passed profile: an argument is advisory, the
-# filesystem and the group are the facts.
+# A consumer that must refuse before touching work files calls this directly.
+# severance ships no adapter for any of them: its CLI is the interface, and a
+# one-line hook calling it belongs with whoever owns the box. The guard
+# re-derives everything itself and never trusts a passed profile: an argument
+# is advisory, the filesystem and the group are the facts.
 #
 # This is the ACTION half of what `severance context` used to be. The identity
 # half retired into `severance current`.

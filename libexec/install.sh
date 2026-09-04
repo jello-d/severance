@@ -1,9 +1,8 @@
 # install.sh - the STANDALONE installer (`severance install` / `uninstall`).
 # Symlinks the package into ~/.local, and NOTHING else. It does not configure
-# any other tool: severance publishes the artifacts it is integrated by
-# (share/hooks/) and audits the result (`severance doctor`), but placing them
-# is the integrator's job. NEVER needed on a host-managed box, where a
-# provisioner symlinks the package itself.
+# any other tool, and ships no adapter for one: severance's CLI is the
+# interface, and wiring a consumer to it is the integrator's job. NEVER needed
+# on a host-managed box, where a provisioner symlinks the package itself.
 # Sourced by bin/severance for the install/uninstall verbs.
 
 # The package (clone) root: bin/severance is $SEVERANCE_SELF, so root is two up.
@@ -27,9 +26,10 @@ _sev_ln() { mkdir -p "$(dirname "$2")"; ln -sfn "$1" "$2"; echo "  link $2"; }
 # -- is the tell that it was the wrong layer. Which boxes get which integration
 # is the integrator's call: a provisioner places these, or a human does.
 #
-# severance still OWNS the content it is integrated BY (share/hooks/), and
-# `severance doctor` still REPORTS anything unwired. Publish the artifact,
-# audit the result, do not reach into someone else's config to arrange it.
+# It also ships no adapter for anyone. A copy of severance's own verbs living
+# in this repo for a consumer's benefit could only go stale -- and did. The CLI
+# is the contract; a one-line hook calling it belongs with whoever owns the
+# box, and checking that hook belongs to whoever declared the seam.
 _wiring_hint() {
   _cfg=$(_sev_cfg)
   echo "severance: integrations are NOT wired by install (by design)."
@@ -37,9 +37,10 @@ _wiring_hint() {
   echo "    git identity split:"
   echo "      git config --global --add include.path \\"
   echo "        $_cfg/git/work-context.gen"
-  echo "  Consumers that read severance (a credential router, a session"
-  echo "  manager) ship or document their own hook; severance provides the"
-  echo "  content it is integrated by under $SEVERANCE_SHARE/hooks/."
+  echo "  A consumer that reads severance (a credential router, a session"
+  echo "  manager) drops in its own one-line hook calling 'severance"
+  echo "  current' or 'severance guard'. severance ships none: its CLI is"
+  echo "  the interface, and a copy of it here could only go stale."
 }
 
 _path_hint() {

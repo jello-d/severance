@@ -32,9 +32,8 @@ lacking the group, is denied by the filesystem.
 `install` symlinks the package and does **nothing else**: it configures no
 other tool. Nobody installing a work/personal boundary expects it to edit their
 git config, and which boxes get which integration is the integrator's call.
-severance publishes the artifacts it is integrated by (`share/hooks/`), but
-placing them is somebody else's job, and so is checking that their end of the
-seam works.
+severance's CLI is what it is integrated by; wiring a consumer to it is
+somebody else's job, and so is checking that their end of the seam works.
 
 `install` is only for a standalone box. Under a provisioning layer (e.g. tackup)
 that already symlinks the package and owns the git/valet-key hooks, it is a
@@ -179,13 +178,13 @@ direction this must never fail in, so an unanswerable question exits 2.
   enclave a process is in calls `severance current`, and anything that needs to
   be refused calls `severance guard`. That is the whole surface.
 
-  Where a consumer's seam has its own shape, severance ships the ADAPTER's
-  content -- `share/hooks/` -- because it is the only thing that knows its own
-  verbs, and a consumer's copy going stale on a rename is a real failure we
-  have had. An integrator PLACES it. severance does not, and does not audit it:
-  reading and grading another tool's config is the same shape as writing it,
-  and only that tool can tell an answer from a failure on its own seam. It
-  checks its own end and stops there.
+  severance ships NO adapter, hook or shim for any of them. Its CLI is the
+  interface: a consumer with a hook directory drops in a one-line executable
+  that calls `severance current` or `severance guard`, and that file lives on
+  the integrator's side because it describes THEIR box. severance does not
+  place it and does not audit it -- reading and grading another tool's config
+  is the same shape as writing it, and only that tool can tell an answer from
+  a failure on its own seam. It checks its own end and stops there.
 
 ## Layout
 
@@ -194,7 +193,6 @@ direction this must never fail in, so an unanswerable question exits 2.
     libexec/  the implementation (work-context reader, seal, runner,
                         check, ZDR guard, profile mgmt, installer)
     share/    the generic enclave note, the runner relay unit,
-                        hooks/ (integration hooks severance owns the text of),
                         and tools (the per-tool config table)
 
 ## Safety notes

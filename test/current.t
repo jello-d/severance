@@ -240,29 +240,18 @@ rc=0; XDG_CONFIG_HOME="$T/cfg" sev init my_work >/dev/null 2>&1 || rc=$?
 [ -e "$T/cfg/severance/profiles/my_work" ] &&
   fail "init: scaffolded a record for an illegal name"
 
-# --- the SHIPPED valet-key hook, and what install does NOT do ----------------
-# severance owns this hook's CONTENT (it is the only thing that knows its own
-# verbs) but does NOT place it: writing into another tool's config directory is
-# the integrator's call, not the boundary's. So the artifact is what is tested,
-# and `install` is tested for NOT touching valet-key at all.
+# --- severance ships NO adapter for any consumer -----------------------------
+# It used to ship one, because a consumer's seam spoke different verbs. A copy
+# of our own verbs living here for someone else's benefit could only go stale,
+# and did -- a rename left every deployed copy calling a verb that no longer
+# existed, silently. The CLI is the contract; a one-line hook calling it
+# belongs with whoever owns the box.
+[ -e "$HERE/share/hooks" ] && fail "severance is shipping an adapter again"
+grep -rq "valet" "$HERE/libexec" && fail "libexec names a specific consumer"
+
+# `install` must not write into any consumer's config, even with one on PATH.
 VKC=$T/vk
 mkdir -p "$VKC/bin" "$VKC/valet-key"
-hook=$HERE/share/hooks/valet-key-context
-[ -x "$hook" ] || fail "share/hooks/valet-key-context is not shipped executable"
-dash -n "$hook" || fail "the shipped hook is not valid sh"
-grep -q 'severance current' "$hook" ||
-  fail "shipped hook does not call 'severance current'"
-grep -q 'severance guard' "$hook" ||
-  fail "shipped hook does not call 'severance guard'"
-grep -q 'severance context' "$hook" &&
-  fail "shipped hook still calls the retired 'context'"
-
-# PURE DELEGATION: no default-token substitution. valet-key reads exit 0 as the
-# answer whether or not it printed, so a mapping here would be a second opinion
-# about what empty means.
-grep -q ':-personal' "$hook" && fail "shipped hook carries a default mapping"
-
-# `install` must NOT write into valet-key's config, even with valet-key on PATH.
 printf '#!/bin/sh\nexit 0\n' > "$VKC/bin/valet-key"
 chmod +x "$VKC/bin/valet-key"
 inst_out=$( ( . "$HERE/libexec/install.sh"
@@ -270,18 +259,13 @@ inst_out=$( ( . "$HERE/libexec/install.sh"
               SEVERANCE_SHARE=$HERE/share
               PATH="$VKC/bin:$PATH" _wiring_hint ) 2>&1 )
 [ -e "$VKC/valet-key/context" ] &&
-  fail "install wrote into valet-key's config dir"
+  fail "install wrote into a consumer's config dir"
 case $inst_out in
   *"NOT wired by install"*) ;;
   *) fail "install did not say integrations are unwired: '$inst_out'" ;;
 esac
 case $inst_out in
   *valet*) fail "install's hint names a specific consumer" ;;
-esac
-# ...and it points at the artifact and at doctor rather than acting.
-case $inst_out in
-  *"severance doctor"*) ;;
-  *) fail "install's hint does not point at doctor: '$inst_out'" ;;
 esac
 
 # --- wc_group_rank reports UNANSWERABLE distinctly ---------------------------
@@ -317,44 +301,6 @@ WC_PROFILES_DIR="$PG" sh -c ". '$WCLIB'
        wc_group_rank() { return 2; }
        wc_current $$" || rc=$?
 [ "$rc" = 1 ] || fail "wc_current: rc=$rc for a live non-member, want 1"
-
-# --- the published hook BEHAVES, not just greps ------------------------------
-# Driven against a stub `severance` so each of current's three outcomes is
-# exercised through the hook the way valet-key will call it.
-mkdir -p "$VKC/stub"
-sev_stub() {   # <stdout> <exit>
-  { echo '#!/bin/sh'
-    echo 'case "$1" in'
-    printf '  current) printf %%s "%s"; exit %s ;;\n' "$1" "$2"
-    echo '  *) exit 0 ;;'
-    echo 'esac'
-  } > "$VKC/stub/severance"
-  chmod +x "$VKC/stub/severance"
-}
-hook_resolve() { PATH="$VKC/stub:$PATH" "$hook" resolve; }
-
-# A PASS-THROUGH: severance's answer AND status go straight to valet-key,
-# which now reads exit 0 as the answer whether or not it printed.
-sev_stub "manifest
-" 0
-out=$(hook_resolve) || fail "hook: non-zero for an in-enclave answer"
-[ "$out" = manifest ] || fail "hook: got '$out', want 'manifest'"
-
-# Empty + exit 0 stays empty + exit 0. Substituting a default token here would
-# be a SECOND opinion about what empty means; valet-key owns that mapping now.
-sev_stub "" 0
-rc=0; out=$(hook_resolve) || rc=$?
-[ "$rc" = 0 ] || fail "hook: rc=$rc for a live personal answer, want 0"
-[ -z "$out" ] || fail "hook: invented '$out' for an empty answer"
-
-# The load-bearing one: `current` could NOT determine the context. The hook
-# must pass that failure on, so valet-key falls back to its own rule rather
-# than treating an unanswerable context as the default -- which would be a
-# false negative on the ZDR wall.
-sev_stub "" 2
-rc=0; out=$(hook_resolve 2>/dev/null) || rc=$?
-[ "$rc" != 0 ] || fail "hook: exit 0 when current could not answer"
-[ -z "$out" ] || fail "hook: printed '$out' when current could not answer"
 
 # --- severance does NOT audit a consumer's config ---------------------------
 # It used to grade $XDG_CONFIG_HOME/valet-key/context. Reading and grading
