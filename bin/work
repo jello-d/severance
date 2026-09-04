@@ -1,27 +1,29 @@
 #!/bin/sh
-# work - drop into a work PROFILE (enclave), or run one command in it.
+# work - enter a work PROFILE (enclave), or run one command in it.
 #
-#   work [profile]             interactive shell in the profile's tree, with its
-#                              group + account + a fixed [<label>] prompt.
-#   work [profile] <cmd> ...   run one command in that context.
-#   work [profile] check [PID] predicate: exit 0 in an enclave, else 1. No
-#                              sudo, re-exec, or output. PID defaults to self.
-#   work [profile] current [PID] value: print the enclave's PROFILE NAME, or
-#                              nothing. Exits 0 either way. No sudo or re-exec.
+#   work                        enter the sole (or default) enclave.
+#   work enter [profile]        enter, naming the enclave explicitly.
+#   work run [profile] -- CMD   run one command in that enclave and exit with
+#                               its status.
 #
-# The profile arg is optional when exactly ONE is provisioned (the common case);
-# with several it is REQUIRED -- bare `work` then fails loud, never guessing a
-# group. arg1 is taken as the profile only when it names a provisioned profile,
-# otherwise it is part of the command. A subshell with an added group + env;
-# nothing persists. Reads the severance profiles via work-context.sh. Sole sudo
-# entry point for the boundary.
+# The verb and the profile are BOTH omittable: bare `work` is `work enter`, and
+# the profile may be left out when exactly one is provisioned or a default
+# marker is set (with several and no default, it is REQUIRED and work fails
+# loud rather than guessing a group).
 #
-# `check` and `current` exist so nothing else has to reimplement "am I in the
-# work group" (the predicate) or "which enclave is this" (the value). Both are
-# the SAME scan -- current_profile below -- so the two can never disagree.
-# Callers that ask about another process (a tmux pane, say) must pass that
-# process's pid: the group is acquired by a child of the shell that ran `work`,
-# so the shell's own pid never holds it.
+# No argument is ever GUESSED. The verb set is closed, the profile sits in a
+# fixed slot, and `--` ends work's own arguments, so nothing can be a profile
+# or a command by accident. (It used to take arg1 as the profile only when it
+# happened to name one, which meant an unrecognised word fell through to the
+# sudo re-exec and HUNG with no TTY.)
+#
+# work is the "go do" tool: the ONE privileged action, a human sudo prompt and
+# a session. It answers no questions. "Which enclave is this process in" is
+# `severance current`, on the config/admin/query binary, so a consumer needs to
+# know about one command rather than two.
+#
+# A subshell with an added group + env; nothing persists. Reads the severance
+# profiles via work-context.sh. Sole sudo entry point for the boundary.
 set -eu
 
 self=$(command -v -- "$0" 2>/dev/null || printf '%s\n' "$0")
@@ -43,119 +45,50 @@ done
   { echo "work: work-context reader not found" >&2; exit 1; }
 . "$wc_lib"
 
-# Resolve the profile (enclave). On re-exec it is forwarded in WORK_PROFILE with
-# the profile arg already stripped; on first entry arg1 selects it when it names
-# a provisioned profile, else wc_load picks the default (the sole profile, else
-# fail loud). WC_PROFILE ends up holding the resolved name either way.
+# --- argument grammar: [verb] [profile] [-- CMD ...] -------------------------
+# Parsed into: $mode (enter|run), $prof (may be empty), and $@ (the command,
+# for run). Nothing is guessed. On a re-exec the profile is already resolved and
+# forwarded in WORK_PROFILE, and we re-parse a NORMALISED argv that this script
+# built itself, so the grammar is applied exactly once per invocation.
+usage() {
+  echo "usage: work [enter [profile]]" >&2
+  echo "       work run [profile] -- CMD ..." >&2
+  exit 2
+}
+
+mode=enter
 prof=
-if [ "${WORK_REEXEC:-}" = 1 ]; then
-  prof=${WORK_PROFILE:-}
-elif [ "$#" -gt 0 ] && wc_profiles 2>/dev/null | grep -qxF -- "$1"; then
-  prof=$1; shift
-fi
+if [ "${WORK_REEXEC:-}" = 1 ]; then prof=${WORK_PROFILE:-}; fi
 
-# Does THIS process hold $WC_GROUP at all? The entry path's test, and the
-# supplementary tier of group_rank below.
-in_group() {
-  case " $(id -Gn) " in
-    *" $WC_GROUP "*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# Rank a process's membership in $WC_GROUP: 0 = the group is PRIMARY, 1 =
-# supplementary only, 2 = not a member. The distinction is what makes the scan
-# correct under NESTING: `work A` from inside `work B` leaves the pid holding
-# BOTH groups, and `sudo -g` made the inner one primary, so a primary match is
-# the enclave you are actually in and a supplementary one is merely an enclave
-# you are still under.
-#
-# With no pid it speaks for THIS process through id(1), the same source
-# in_group and the entry path below use, so no answer can drift from work's
-# own. With a pid it must read /proc instead: id(1) can only speak for the
-# caller. Same two-tier question either way -- Gid: is the primary, Groups: the
-# supplementary set.
-group_rank() {                          # [pid]
-  if [ -z "${1:-}" ]; then
-    [ "$(id -gn)" = "$WC_GROUP" ] && return 0
-    in_group && return 1
-    return 2
-  fi
-  _st=/proc/$1/status
-  [ -r "$_st" ] || return 2
-  _gid=$(getent group "$WC_GROUP" 2>/dev/null | cut -d: -f3)
-  [ -n "$_gid" ] || return 2
-  [ "$(awk '/^Gid:/ { print $3; exit }' "$_st")" = "$_gid" ] && return 0
-  case " $(awk '/^Groups:/ { $1 = ""; print; exit }' "$_st") " in
-    *" $_gid "*) return 1 ;;
-  esac
-  return 2
-}
-
-# The ONE implementation behind both `current` and `check`: which enclave is
-# this process (or PID) in? Echoes the profile name, or nothing.
-#
-# It SCANS every provisioned profile rather than resolving one, because "which
-# am I in" is not "am I in the default one" -- on a multitenant box a process
-# in a non-default profile's group is still in an enclave, and wc_load alone
-# cannot pick it (with several profiles and no default marker it just fails).
-# A pinned profile arg narrows the scan to that one.
-#
-# The GROUP is the ground truth, never $WORK_PROFILE: that env var survives
-# into the session as session state, so trusting it would report what was
-# asserted rather than what the kernel actually granted.
-#
-# Two passes, because a primary match outranks a supplementary one and the
-# winner is not known until every profile has been ranked. A record that fails
-# to parse is real drift: let wc_load say so on stderr and keep scanning, so
-# one broken record can neither hide a good answer nor make this verb lie.
-current_profile() {                     # [pid]
-  _supp=
-  for _p in ${prof:-$(wc_profiles)}; do
-    wc_load "$_p" || continue
-    _r=0
-    if [ -n "${1:-}" ]; then group_rank "$1" || _r=$?
-    else group_rank || _r=$?; fi
-    [ "$_r" = 0 ] && { printf '%s\n' "$WC_PROFILE"; return 0; }
-    [ "$_r" = 1 ] && [ -z "$_supp" ] && _supp=$WC_PROFILE
-  done
-  [ -n "$_supp" ] && printf '%s\n' "$_supp"
-  return 0
-}
-
-# Parse the shared `[PID]` tail of both verbs into $_pid (empty = this
-# process), or exit 2. Same validation for each, so neither can be laxer.
-_verb_pid() {                           # <verb> <argc> [arg2]
-  _pid=
-  case $2 in
-    1) ;;
-    2) case $3 in
-         ''|*[!0-9]*) echo "work: $1: not a pid: $3" >&2; exit 2 ;;
-       esac
-       _pid=$3 ;;
-    *) echo "work: usage: work $1 [PID]" >&2; exit 2 ;;
-  esac
-}
-
-# Both verbs dispatch HERE, above wc_load and above any group juggling: they
-# must never sudo, re-exec, or print on the normal path. That placement is
-# required, not stylistic -- work treats an unrecognised arg1 as a command to
-# run, so falling through would reach the sudo re-exec below and HANG on a
-# TTY-less prompt. It is also above wc_load because both must still answer on a
-# multi-profile box, where wc_load alone exits.
-#
-# `current` is the VALUE form and exits 0 whether or not it found one, so a
-# caller can do `t=$(work current)` and test [ -n "$t" ] without also trapping
-# a status. `check` is the PREDICATE form, so its exit status IS the answer.
-if [ "${1:-}" = current ]; then
-  _verb_pid current $# "${2:-}"
-  current_profile "$_pid"
-  exit 0
-fi
-if [ "${1:-}" = check ]; then
-  _verb_pid check $# "${2:-}"
-  [ -n "$(current_profile "$_pid")" ] && exit 0 || exit 1
-fi
+case "${1:-}" in
+  enter)
+    shift
+    # An optional profile, and nothing else. A stray word here is an error
+    # rather than a command, which is the whole point of the closed verb set.
+    if [ "$#" -gt 0 ]; then
+      case $1 in --|-*) usage ;; esac
+      prof=$1; shift
+    fi
+    [ "$#" -eq 0 ] || usage
+    ;;
+  run)
+    mode=run
+    shift
+    # The profile slot is positional and ends at `--`, which is MANDATORY for
+    # run: without it, `work run npm test` would need a name lookup to know
+    # whether `npm` is a profile, and that guess is what this grammar removes.
+    if [ "${1:-}" != -- ]; then
+      [ "$#" -gt 0 ] || usage
+      case $1 in -*) usage ;; esac
+      prof=$1; shift
+    fi
+    [ "${1:-}" = -- ] || usage
+    shift
+    [ "$#" -gt 0 ] || usage
+    ;;
+  '') ;;                                  # bare `work` = `work enter`
+  *) usage ;;
+esac
 
 _rc=0; wc_load "$prof" || _rc=$?
 if [ "$_rc" != 0 ]; then
@@ -174,11 +107,19 @@ LABEL=${WC_LABEL:-work}
 # is an OSC 52 escape and needs none of this). Same uid, so this crosses no
 # boundary -- the wall is the group ACL on work_dir, untouched. Everything else
 # is re-derived by env_load. WORK_REEXEC guards against a loop with no sudoers.
-if ! in_group; then
+#
+# The re-exec forwards a NORMALISED argv (`run -- CMD`, or `enter`), never the
+# user's original words: the profile is already resolved and travels in
+# WORK_PROFILE, so re-parsing cannot reach a different answer than this pass
+# did. Membership is asked through the reader's wc_group_rank, the same
+# implementation `severance current` uses, so entry and query cannot drift.
+_rank=0; wc_group_rank || _rank=$?
+if [ "$_rank" = 2 ]; then
   if [ "${WORK_REEXEC:-}" = 1 ]; then
     echo "work: could not acquire '$WC_GROUP' group (check sudoers)" >&2
     exit 1
   fi
+  if [ "$mode" = run ]; then set -- run -- "$@"; else set -- enter; fi
   exec sudo -u "$(id -un)" -g "$WC_GROUP" env WORK_REEXEC=1 \
     WORK_PROFILE="$WC_PROFILE" \
     ${SSH_AUTH_SOCK:+SSH_AUTH_SOCK="$SSH_AUTH_SOCK"} \
@@ -190,11 +131,11 @@ fi
 
 # The re-exec handshake is done here (group acquired, profile resolved above).
 # WORK_REEXEC was EXPORTED into this process; unset it so it does NOT leak to
-# children. Otherwise a nested `work <profile> <cmd>` from inside the session
-# sees WORK_REEXEC=1, takes the "profile already stripped" branch, never shifts
-# the profile arg, and execs the PROFILE NAME as the command. WORK_PROFILE is
-# KEPT -- it is real session state (wc_load reads it as the current enclave for
-# a bare `work <cmd>`); only the re-exec flag must not survive.
+# children. Otherwise a nested `work run ...` from inside the session sees
+# WORK_REEXEC=1 and takes the "profile already resolved" branch, pinning the
+# nested call to the OUTER enclave. WORK_PROFILE is KEPT -- it is real session
+# state (wc_load reads it as the current enclave for a bare `work`); only the
+# re-exec flag must not survive.
 unset WORK_REEXEC
 
 export CLAUDE_CONFIG_DIR="$WC_CLAUDE_CONFIG"
@@ -224,15 +165,17 @@ export CODEX_HOME="$WC_CONFIG_ROOT/codex"
 # (docker then fails "cannot connect", which the runner check flags).
 [ -n "$WC_RUNNER" ] && export DOCKER_HOST="unix:///run/$WC_RUNNER/docker.sock"
 
-# One-shot: run a single command in context and exit with its status. Unset any
-# inherited $ENV so it cannot leak into the command's children (it collides with
-# apps that read ENV as a config var), then source the enclave rc so `work
-# <cmd>` gets the same work-tree env as the interactive shell below.
-if [ "$#" -gt 0 ]; then
+# `run`: one command in context, exiting with its status. Unset any inherited
+# $ENV so it cannot leak into the command's children (it collides with apps that
+# read ENV as a config var), then source the enclave rc so `work run` gets the
+# same work-tree env as the interactive shell below. Keyed on $mode, not on
+# $#: the grammar already decided, and re-deciding from argv here is how the
+# two could disagree.
+if [ "$mode" = run ]; then
   cd "$WC_DIR" 2>/dev/null || true
   unset ENV
   # Establish the box shell environment (PATH + self/env, and the nvm/tfenv
-  # toolchains on PATH) so `work <cmd>` runs with the SAME tools as the
+  # toolchains on PATH) so `work run` runs with the SAME tools as the
   # interactive shell -- node/npm/terraform etc. Without it a re-exec'd command
   # ran with only sudo's bare PATH and no nvm (`node: command not found`).
   # GOTCHA: dash's `.` DROPS arguments (POSIX-permitted), so `. file a b` lets

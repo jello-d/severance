@@ -36,6 +36,8 @@ usage: severance <command> [args]
   list                       provisioned profiles (* marks the default)
   show   [profile] [--shell] the resolved settings (--shell: eval-able WC_*)
   use    <profile>|--clear   set (or clear) the default-profile marker
+  current [PID]              which enclave a process is IN (profile name, or
+                             nothing); always exits 0
   init   <name> [key=val..]  scaffold a new profile record
   seal   [profile...]        provision the work boundary (privileged)
   runner [profile...]        provision the rootless-docker runner (privileged)
@@ -44,6 +46,14 @@ usage: severance <command> [args]
   check  [--seal|--runner]   audit; non-zero on drift (bare = both + validate)
   validate [profile]         lint profile records (before they provision)
   doctor                     whole-boundary health (install + wall + runner)
+  guard                      ZDR refuse: exit 1 inside a work tree without the
+                             enclave group (the valet-key seam)
+
+machine interface -- STABLE contracts, consumed by other tools. Their output
+shape and exit codes will not change without a major version bump:
+  current [PID]              one word on stdout, or nothing. Always exits 0.
+  guard                      exit 0 ok / 1 refuse. Message on stderr.
+  show --shell               eval-able WC_* assignments.
 EOF
   exit 2
 }
@@ -56,6 +66,7 @@ case $cmd in
   list)    . "$LIBEXEC/profile.sh"; sev_list "$@" ;;
   show)    . "$LIBEXEC/profile.sh"; sev_show "$@" ;;
   use)     . "$LIBEXEC/profile.sh"; sev_use "$@" ;;
+  current) . "$LIBEXEC/profile.sh"; sev_current "$@" ;;
   init)    . "$LIBEXEC/profile.sh"; sev_init "$@" ;;
   seal)    sev_sudo_prime; . "$LIBEXEC/seal.sh";   sev_seal "$@" ;;
   runner)  sev_sudo_prime; . "$LIBEXEC/runner.sh"; sev_runner "$@" ;;
@@ -63,7 +74,17 @@ case $cmd in
   check)    . "$LIBEXEC/check.sh"; sev_check "$@" ;;
   validate) . "$LIBEXEC/validate.sh"; sev_validate "$@" ;;
   doctor)   . "$LIBEXEC/doctor.sh"; sev_doctor "$@" ;;
-  context)  . "$LIBEXEC/context.sh"; sev_context "$@" ;;
+  guard)    . "$LIBEXEC/guard.sh"; sev_guard "$@" ;;
+  # `context resolve|guard` was valet-key's vocabulary on severance's binary.
+  # resolve retired into `current`; guard is a top-level verb. Kept as a loud
+  # error, not a silent alias: a stale caller must be FIXED, not quietly served
+  # by a shim that hides which spelling is live.
+  context)
+    echo "severance: 'context' is retired." >&2
+    echo "  context resolve -> severance current (prints nothing, not" >&2
+    echo "                     'personal', when outside an enclave)" >&2
+    echo "  context guard   -> severance guard" >&2
+    exit 2 ;;
   ''|-h|--help|help) _usage ;;
   *) echo "severance: unknown command: $cmd" >&2; _usage ;;
 esac

@@ -41,17 +41,18 @@ guarded no-op. `severance uninstall` removes the links.
     severance runner                    # provision the rootless-docker runner
     severance check                     # audit; non-zero on drift
 
-    work                                # enter the (default) enclave
-    work <cmd>                          # run one command in it
-    work check $$                       # predicate: in an enclave? (exit 0/1)
-    work current                        # value: which one? (profile name, or
-                                        #   nothing; always exits 0)
+    work                                # enter the (sole/default) enclave
+    work enter <profile>                # ...naming it explicitly
+    work run -- <cmd> ...               # run one command in it
+    work run <profile> -- <cmd> ...     # ...in a named enclave
+
+    severance current                   # which enclave is this process in?
 
 With several profiles, mark the active one:
 
     severance list                      # '*' marks the default
     severance use work                  # set the default
-    work otherjob                       # or name one explicitly
+    work enter otherjob                 # or name one explicitly
 
 Health, and tearing one down:
 
@@ -75,9 +76,37 @@ Health, and tearing one down:
 
 `work_group` derives from the profile name, so an enclave has ONE name rather
 than the same name stored twice where the two can drift. Set the key only when
-the profile name is not a legal group name (`[a-z0-9_-]`); `severance validate`
-warns when the two differ. Likewise `claude_config` derives from `work_dir`, so
-the work account lands behind the same gate as everything else.
+the profile name is not a legal group name; `severance validate` warns when the
+two differ. Likewise `claude_config` derives from `work_dir`, so the work
+account lands behind the same gate as everything else.
+
+## Two commands, one job each
+
+**`severance`** is the boundary: declare it, provision it, audit it, and answer
+questions about it. Config, admin, and query. Every non-human consumer talks to
+this binary and only this binary.
+
+**`work`** is the one privileged action: acquire the group and hand a human a
+session, or run one command in it. It is the sole sudo entry point, and it
+answers no questions. "Which enclave is this process in" is `severance
+current`, not `work current`, so an integrator needs to know about one command
+rather than two.
+
+### Machine interface
+
+Stable contracts consumed by other tools. Their output shape and exit codes
+will not change without a major version bump. Everything else in this README is
+a human report or a mutation, free to change its wording.
+
+- `severance current [PID]` -- the profile name on stdout, or nothing.
+  **Always exits 0.**
+- `severance guard` -- exit 0 ok, 1 refuse; the message goes to stderr.
+- `severance show --shell` -- eval-able `WC_*` assignments.
+
+`current` is a value, not a predicate, which is why it exits 0 either way: a
+caller does `p=$(severance current)` and tests `[ -n "$p" ]` without also
+trapping a status. There is deliberately no separate predicate verb, so the two
+can never disagree.
 
 ## Integrations
 
@@ -91,7 +120,7 @@ the work account lands behind the same gate as everything else.
     bin/severance       management + provisioning CLI (self-locating)
     bin/work            the enclave-entry command
     libexec/  the implementation (work-context reader, seal, runner,
-                        check, context seam, profile mgmt, installer)
+                        check, ZDR guard, profile mgmt, installer)
     share/    the generic enclave note + the runner relay unit
 
 ## Safety notes

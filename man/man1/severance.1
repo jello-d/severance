@@ -7,8 +7,12 @@ severance \- kernel-enforced work/personal boundary
 .RI [ args ]
 .br
 .B work
+.RI [ "enter " [ profile ]]
+.br
+.B work run
 .RI [ profile ]
-.RI [ command ...]
+.B --
+.I command ...
 .SH DESCRIPTION
 .B severance
 provisions and audits a kernel-enforced boundary between confidential
@@ -26,25 +30,36 @@ enters an enclave: it acquires the group for the session via a human
 prompt and runs a shell (or one command) with the enclave's account and
 environment. Nothing persists.
 .PP
-Two read-only verbs answer, without entering anything, whether a process is
-in an enclave. Both scan every provisioned profile rather than resolving one,
-so a process in a non-default profile's group is still reported; both take an
-optional
-.IR PID ,
-defaulting to the calling process; and neither ever prompts for
-.BR sudo (8)
-or re-executes, so both are safe with no controlling terminal.
+.B severance
+answers questions about the boundary;
+.B work
+performs the one privileged action and answers none. "Which enclave is this
+process in" is
+.BR "severance current" ,
+so an integrator needs to know about one command rather than two.
+.SH WORK
+.B work
+takes a closed verb set, an optional profile in a fixed slot, and
+.B --
+before any command. Nothing is guessed: the verb and the profile may both be
+omitted, but an unrecognised word is a usage error rather than a command.
 .TP
-.B work check \fR[\fIPID\fR]
-Predicate. Exit 0 when the process is in an enclave, 1 when it is not. No
-output.
+.B work \fR[\fBenter \fR[\fIprofile\fR]]
+Enter the enclave and run an interactive shell in its tree, with its group,
+account and prompt. Bare
+.B work
+is
+.BR "work enter" .
 .TP
-.B work current \fR[\fIPID\fR]
-Value. Print the enclave's profile name, or nothing when there is none. Exits
-0 either way, so a caller can test the output for emptiness without also
-trapping a status. Where nested enclaves leave a process holding several
-groups, the innermost wins: the group
-.BR "sudo -g" " made primary."
+.B work run \fR[\fIprofile\fR] \fB-- \fICMD\fR ...
+Run one command in the enclave and exit with its status. The
+.B --
+is mandatory, so no name lookup decides whether the first word is a profile.
+.PP
+The profile may be omitted when exactly one is provisioned or a default marker
+is set. With several and no default it is REQUIRED, and
+.B work
+fails loud rather than guessing a group.
 .SH COMMANDS
 .TP
 .B install \fR/\fB uninstall
@@ -57,6 +72,21 @@ guarded no-op under a host that already manages those.
 List provisioned profiles;
 .B *
 marks the resolved default.
+.TP
+.B current \fR[\fIPID\fR]
+Print the profile name of the enclave the process is in, or nothing. Exits 0
+either way: this is a value, not a predicate, so a caller tests the output for
+emptiness without also trapping a status. It SCANS every provisioned profile
+rather than resolving one, so a process in a non-default profile's group is
+still reported. Where nested enclaves leave a process holding several groups,
+the innermost wins: the group
+.BR "sudo -g" " made primary."
+.TP
+.B guard
+Exit 1, with a message on stderr, when the process is inside a work tree
+WITHOUT the enclave group; else exit 0. The kernel wall is the real
+enforcement; this is the fail-loud reminder, read by valet-key through
+.IR ~/.config/valet-key/context .
 .TP
 .BI show " [profile]"
 Print the resolved settings for a profile (or the default).
@@ -113,6 +143,27 @@ Select a profile (overridden by an explicit argument).
 .TP
 .B SEVERANCE_PROFILES_DIR
 Override the profiles directory (a host points this at its records).
+.SH MACHINE INTERFACE
+.BR current ,
+.B guard
+and
+.B "show --shell"
+are STABLE contracts consumed by other tools: their output shape and exit codes
+will not change without a major version bump. Every other command is a human
+report or a mutation and is free to change its wording.
+.PP
+.B "severance context"
+was the earlier spelling of this seam, in valet-key's vocabulary rather than
+severance's. It is retired and now exits 2 with a pointer:
+.B "context resolve"
+became
+.BR current ", " "context guard" " became " guard .
+Note that
+.B current
+prints NOTHING outside an enclave where
+.B "context resolve"
+printed
+.IR personal .
 .SH NOTES
 The wall is the kernel. Permission lists and git config are not the boundary and
 must not be relied on for it. The enclave group is transient: the login user is

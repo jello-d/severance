@@ -56,6 +56,24 @@ sev_show() {
   printf 'runner=%s\n' "$WC_RUNNER"
 }
 
+# Which enclave is this process (or PID) in? Prints the profile name, or
+# nothing, and exits 0 EITHER WAY: this is a value, not a predicate, so a caller
+# does `p=$(severance current)` and tests [ -n "$p" ] without also trapping a
+# status. The predicate form is that test; there is deliberately no second verb
+# for it, so the two can never disagree.
+#
+# A STABLE contract: one word on stdout, nothing on stderr on the normal path.
+# mux consumes it directly as its context-command.
+sev_current() {   # [pid]
+  case ${1:-} in
+    '') ;;
+    *[!0-9]*) echo "severance: current: not a pid: $1" >&2; return 2 ;;
+  esac
+  [ "$#" -le 1 ] || { echo "usage: severance current [PID]" >&2; return 2; }
+  wc_current "${1:-}" || return 0
+  printf '%s\n' "$WC_CURRENT"
+}
+
 # Set (or clear) the default-profile marker.
 sev_use() {
   _sev_host_managed && { _sev_host_note use; return 1; }

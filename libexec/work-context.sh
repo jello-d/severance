@@ -19,6 +19,10 @@
 #   WC_PROFILE WC_LABEL WC_GROUP WC_DIR WC_CLAUDE_CONFIG WC_GIT_REMOTE_GLOB
 #   WC_RUNNER WC_ENCLAVE_PERSONAL WC_SERVICE_USER WC_SERVICE_OVERLAY
 #   WC_SERVICE_OVERLAY_WRITE WC_CONFIG_ROOT
+#
+# wc_load answers "what is profile X". The other question, "which enclave is
+# this PROCESS in", is wc_current: it scans every profile and ranks the caller's
+# group membership. Both live here so no command reimplements either.
 # WC_GROUP defaults to the PROFILE NAME when the record omits `work_group`.
 # WC_RUNNER defaults to <label>-runner when the record omits `runner`.
 # WC_CONFIG_ROOT is WORK_HOME/.config (= WC_DIR/.config); per-tool work dirs
@@ -81,10 +85,17 @@ _wc_resolve() {   # [name]
   esac
 }
 
-wc_load() {   # [name]
+# Clear every WC_*, so no caller can read a stale profile's settings after a
+# failed or empty resolve. wc_load calls it first; wc_current calls it when the
+# scan finds nothing.
+wc_reset() {
   WC_PROFILE= WC_LABEL= WC_GROUP= WC_DIR= WC_CLAUDE_CONFIG= WC_GIT_REMOTE_GLOB=
   WC_RUNNER= WC_ENCLAVE_PERSONAL= WC_SERVICE_USER= WC_SERVICE_OVERLAY=
   WC_SERVICE_OVERLAY_WRITE= WC_CONFIG_ROOT=
+}
+
+wc_load() {   # [name]
+  wc_reset
   _cfg=$(_wc_resolve "${1:-}") || return $?
   WC_PROFILE=${_cfg##*/}
   while IFS='=' read -r k v; do
@@ -122,20 +133,88 @@ wc_load() {   # [name]
   return 0
 }
 
+# --- "which enclave is this process in?" -------------------------------------
+# THE single answer to that question, for every caller in every package. It
+# lives in the reader, not in a command, so `severance current`, wc_account and
+# anything else are one implementation rather than several that can disagree.
+
+# Rank a process's membership in $WC_GROUP: 0 = the group is PRIMARY, 1 =
+# supplementary only, 2 = not a member. The distinction is what makes wc_current
+# correct under NESTING: entering enclave A from inside enclave B leaves the pid
+# holding BOTH groups, and `sudo -g` made the inner one primary, so a primary
+# match is the enclave you are actually in and a supplementary one is merely an
+# enclave you are still under.
+#
+# With no pid it speaks for THIS process through id(1). With a pid it must read
+# /proc instead: id(1) can only speak for the caller. Same two-tier question
+# either way -- Gid: is the primary, Groups: the supplementary set.
+wc_group_rank() {   # [pid]
+  if [ -z "${1:-}" ]; then
+    [ "$(id -gn)" = "$WC_GROUP" ] && return 0
+    case " $(id -Gn) " in *" $WC_GROUP "*) return 1 ;; esac
+    return 2
+  fi
+  _wc_st=/proc/$1/status
+  [ -r "$_wc_st" ] || return 2
+  _wc_gid=$(getent group "$WC_GROUP" 2>/dev/null | cut -d: -f3)
+  [ -n "$_wc_gid" ] || return 2
+  [ "$(awk '/^Gid:/ { print $3; exit }' "$_wc_st")" = "$_wc_gid" ] && return 0
+  case " $(awk '/^Groups:/ { $1 = ""; print; exit }' "$_wc_st") " in
+    *" $_wc_gid "*) return 1 ;;
+  esac
+  return 2
+}
+
+# wc_current - which enclave is a process in? Sets WC_CURRENT to the profile
+# name (empty when none) and returns 0 inside an enclave, 1 outside. On a match
+# the WC_* are left LOADED for that profile; with no match they are cleared, so
+# a caller can never read a stale profile's settings.
+#
+# It SCANS every provisioned profile rather than resolving one, because "which
+# am I in" is not "am I in the default one": on a multitenant box a process in a
+# non-default profile's group is still in an enclave, and _wc_resolve cannot
+# pick it (with several profiles and no default marker it just fails).
+#
+# The GROUP is the ground truth, never $WORK_PROFILE: that var survives into a
+# session as state, so trusting it would report what was asserted rather than
+# what the kernel granted.
+#
+# Two passes, because a primary match outranks a supplementary one and the
+# winner is not known until every profile has been ranked. A record that fails
+# to parse is real drift: let wc_load say so on stderr and keep scanning, so one
+# broken record can neither hide a good answer nor make this lie.
+wc_current() {   # [pid]
+  WC_CURRENT= _wc_supp=
+  for _wc_p in $(wc_profiles); do
+    wc_load "$_wc_p" || continue
+    _wc_r=0
+    if [ -n "${1:-}" ]; then wc_group_rank "$1" || _wc_r=$?
+    else wc_group_rank || _wc_r=$?; fi
+    [ "$_wc_r" = 0 ] && { WC_CURRENT=$WC_PROFILE; return 0; }
+    [ "$_wc_r" = 1 ] && [ -z "$_wc_supp" ] && _wc_supp=$WC_PROFILE
+  done
+  if [ -n "$_wc_supp" ] && wc_load "$_wc_supp"; then
+    WC_CURRENT=$WC_PROFILE; return 0
+  fi
+  wc_reset
+  return 1
+}
+
 # wc_account - resolve the active Claude account for THIS process, the single
 # source of the work/personal account rule (the `claude` wrapper and claude-
 # slots both call it, rather than each open-coding the same test). Sets, with no
-# subshell so the WC_* that wc_load set stay visible to the caller:
-#   WC_ACCOUNT_DIR  - config dir: the work claude_config when this process holds
-#                     the work group, else the personal base.
+# subshell so the WC_* that wc_current set stay visible to the caller:
+#   WC_ACCOUNT_DIR  - config dir: the work claude_config when this process is in
+#                     an enclave, else the personal base.
 #   WC_ACCOUNT_WORK - 1 when the work account was chosen, else 0.
-# No profile resolved, or not in the group, resolves to personal.
+# Not in any enclave resolves to personal. Built on wc_current, so a process in
+# a NON-DEFAULT profile's group gets that profile's account rather than the
+# default profile's (or personal, which is what resolving one used to give).
 wc_account() {
   WC_ACCOUNT_DIR=$WC_PERSONAL_DIR
   WC_ACCOUNT_WORK=0
-  if wc_load 2>/dev/null; then
-    case " $(id -Gn) " in
-      *" $WC_GROUP "*) WC_ACCOUNT_DIR=$WC_CLAUDE_CONFIG; WC_ACCOUNT_WORK=1 ;;
-    esac
+  if wc_current 2>/dev/null; then
+    WC_ACCOUNT_DIR=$WC_CLAUDE_CONFIG
+    WC_ACCOUNT_WORK=1
   fi
 }
