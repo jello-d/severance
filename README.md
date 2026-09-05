@@ -210,3 +210,13 @@ An 80-column limit is enforced by a tracked pre-commit hook. Enable it once
 per clone:
 
     git config core.hooksPath .githooks
+
+`test/run` runs everything and needs no privileges. `test/seal-real.t`
+provisions
+a REAL wall -- actual chown/chmod/setfacl, audited by the real `stat` and
+`getfacl` with nothing stubbed -- inside a `bubblewrap` user namespace, and
+SKIPS itself where bubblewrap or user namespaces are unavailable. It cannot
+prove the one thing that needs a second identity: that a non-member is DENIED.
+Only a single id is mapped, root inside bypasses the permission bits the wall
+is made of, and mapping a range needs `newuidmap` through a user namespace many
+systems deny unprivileged processes. That proof needs real root or a VM.
