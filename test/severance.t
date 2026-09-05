@@ -369,6 +369,59 @@ env -i PATH="$FB:/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$T/fp-link" \
   || fail "forget (guarded) errored"
 [ -f "$FP/host" ] || fail "forget --purge: removed a host-managed record"
 
+# --purge must CLEAR the default marker when it named the purged profile.
+# Otherwise the marker outlives its record, and every later resolve either
+# silently falls to the sole-profile rule or fails on a profile that is gone --
+# a dangling pointer left behind by a cleanup verb.
+DF=$T/fp-default
+printf 'work_group=d\nwork_dir=/w/d\nrunner=d-run\n' > "$FP/doomed"
+printf 'doomed\n' > "$DF"
+env -i PATH="$FB:/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$FP" \
+  WC_DEFAULT_FILE="$DF" SEVERANCE_DRYRUN=1 "$SEV" forget doomed --purge \
+  >/dev/null 2>&1 || fail "forget --purge (default) exited non-zero"
+[ -e "$DF" ] &&
+  fail "forget --purge: left a default marker naming a dead record"
+
+# ...but a marker naming a SURVIVOR is untouched: purging one profile must not
+# silently repoint the box at nothing.
+printf 'work_group=e\nwork_dir=/w/e\nrunner=e-run\n' > "$FP/other"
+printf 'keep\n' > "$DF"
+env -i PATH="$FB:/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$FP" \
+  WC_DEFAULT_FILE="$DF" SEVERANCE_DRYRUN=1 "$SEV" forget other --purge \
+  >/dev/null 2>&1 || fail "forget --purge (survivor) exited non-zero"
+[ "$(cat "$DF")" = keep ] ||
+  fail "forget --purge: clobbered an unrelated default"
+
+# --- list: the provisioned profiles, '*' marking the resolved default -------
+# The marker is the only thing distinguishing "which one do I get by default"
+# on a multitenant box, so it is worth more than its two characters.
+lst() { env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$FP" \
+  WC_DEFAULT_FILE="$DF" "$SEV" list; }
+printf 'keep\n' > "$DF"
+out=$(lst) || fail "list exited non-zero"
+echo "$out" | grep -q '^\* keep$' || fail "list: default not marked: $out"
+echo "$out" | grep -q '^  host$' ||
+  fail "list: non-default wrongly marked: $out"
+# no marker at all: nothing is starred, and it still lists every profile.
+rm -f "$DF"
+out=$(lst) || fail "list exited non-zero with no default marker"
+echo "$out" | grep -q '^\*' &&
+  fail "list: starred a profile with no default"
+[ "$(echo "$out" | wc -l)" = "$(ls "$FP" | wc -l)" ] ||
+  fail "list did not report every provisioned profile"
+
+# --- use: set and clear the default marker -----------------------------------
+usev() { env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$FP" \
+  WC_DEFAULT_FILE="$DF" "$SEV" use "$@"; }
+usev keep >/dev/null 2>&1 || fail "use exited non-zero"
+[ "$(cat "$DF")" = keep ] || fail "use did not write the marker"
+usev --clear >/dev/null 2>&1 || fail "use --clear exited non-zero"
+[ -e "$DF" ] && fail "use --clear left the marker"
+# A profile that does not exist is refused, and writes NOTHING: a marker
+# naming a missing record is the dangling pointer the purge case guards too.
+usev nosuchprofile >/dev/null 2>&1 && fail "use accepted a missing profile"
+[ -e "$DF" ] && fail "use wrote a marker for a missing profile"
+
 # init + use DEFER on a host-managed (symlink) profiles dir ($T/fp-link above).
 hm() { env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$T/fp-link" \
   "$SEV" "$@"; }
@@ -446,6 +499,102 @@ case $err in
   *"unknown key: nonsense"*) ;;
   *) fail "an unknown key lost its generic diagnostic: $err" ;;
 esac
+
+# --- the RECORD's documented keys must be the keys it accepts ---------------
+# Docs drifting from behaviour has bitten repeatedly here, and a record is the
+# one thing a human hand-writes: a key documented but not parsed fails loud at
+# provision time, and a key parsed but not documented is a feature nobody can
+# find. Both directions, held to the parser.
+_rdr=$SEVROOT/libexec/work-context.sh
+keys=$(sed -n '/while IFS=.=. read -r k v/,/esac/p' "$_rdr" \
+       | sed -n 's/^      \([a-z_]*\)).*/\1/p')
+[ -n "$keys" ] || fail "could not extract the record keys from the reader"
+for _k in $keys; do
+  # Retired keys are parsed only to say so; they must NOT be documented as
+  # usable, and are asserted elsewhere to fail loud.
+  case $_k in label|service_user|service_overlay|service_overlay_write)
+    grep -q "^    $_k=" "$SEVROOT/README.md" &&
+      fail "README documents the retired key '$_k' as usable"
+    continue ;;
+  esac
+  grep -q "$_k" "$SEVROOT/README.md" ||
+    fail "record key '$_k' is parsed but undocumented in the README"
+done
+
+# ...and the README's worked example must contain only real keys. Extracted by
+# SECTION rather than by matching the heading's literal text, which is fragile
+# to a stray backtick and silently matched nothing in the first version of
+# this check -- a test that examines an empty list passes by vacuum.
+exkeys=$(awk '/^## Profile record/{f=1;next} f&&/^## /{f=0}
+              f&&/^    [a-z_]+=/{sub(/=.*/,"");sub(/^ */,"");print}' \
+         "$SEVROOT/README.md")
+[ -n "$exkeys" ] || fail "could not extract the README's record example"
+for _k in $exkeys; do
+  printf '%s\n' "$keys" | grep -qx "$_k" ||
+    fail "the README record example shows a key the reader rejects: $_k"
+done
+
+# --- doctor's OWN sections (it had never been run in a test) -----------------
+# doctor is the "is my boundary intact end to end" report, and the whole-wall
+# audit it delegates to is covered above. What was not covered is doctor's own
+# four checks -- and one of them, the default marker, is the dangling-pointer
+# case that `forget --purge` and `use` also guard. Three verbs can leave it,
+# so the report that would tell you had better catch it.
+DD=$T/dd; mkdir -p "$DD"
+DDF=$T/dd-default
+doc() { env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$DD" \
+  WC_DEFAULT_FILE="$DDF" NO_COLOR=1 SEVERANCE_DRYRUN=1 "$SEV" doctor 2>&1; }
+
+# No profiles: a personal-only box is a WARNING, not a failure. Refusing to
+# report on a box with no enclave would make doctor useless exactly when
+# someone is setting one up.
+# Marker-and-message on ONE line: a `case` glob over multi-line output would
+# match a [FAIL] emitted by the delegated wall audit further up, which is how
+# a looser version of this test passed against a doctor that had stopped
+# distinguishing the two.
+out=$(doc) || true
+echo "$out" | grep -q '\[WARN\].*no profiles provisioned' ||
+  fail "doctor: a personal-only box should WARN, not fail: $out"
+
+printf 'work_group=dg\nwork_dir=/w/dg\n' > "$DD/dg"
+out=$(doc) || true
+echo "$out" | grep -q '\[OK\].*1 profile(s) provisioned' ||
+  fail "doctor: profile count wrong: $out"
+# ...and it validates each record, so a bad one surfaces in the health report
+# rather than only when someone thinks to run validate.
+echo "$out" | grep -q 'dg: profile name' ||
+  fail "doctor: did not validate the record: $out"
+
+# THE dangling pointer: a marker naming a profile that is not there.
+printf 'ghost\n' > "$DDF"
+out=$(doc) || true
+echo "$out" | grep -q '\[FAIL\].*names a missing profile' ||
+  fail "doctor: a dangling default marker was not a FAILURE: $out"
+
+printf 'dg\n' > "$DDF"
+out=$(doc) || true
+echo "$out" | grep -q '\[OK\].*default profile -> dg' ||
+  fail "doctor: a resolvable default was not reported OK: $out"
+case $out in *"names a missing profile"*)
+  fail "doctor: flagged a resolvable default" ;; esac
+
+# --- the MAN PAGE must not present a retired verb as usable -----------------
+# --help is already held to the code below; the man page is the other thing an
+# integrator reads, and it drifted the same way: it listed `context` under
+# COMMANDS as "the discovery seam" long after that verb was retired, and
+# quoted the wrong exit code for it. Retirement notes are fine -- presenting
+# one as a live command is not.
+MAN=$SEVROOT/man/man1/severance.1
+[ -r "$MAN" ] || fail "man page missing"
+sed -n '/^\.SH COMMANDS/,/^\.SH /p' "$MAN" | grep -q '^\.BR* context' &&
+  fail "the man page lists the retired 'context' under COMMANDS"
+
+# The exit code it quotes for the retired verb must be the one the code uses.
+_rc=0
+env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$T/empty" \
+  "$SEV" context resolve >/dev/null 2>&1 || _rc=$?
+grep -q "exits $_rc" "$MAN" ||
+  fail "man quotes the wrong exit for the retired verb (code exits $_rc)"
 
 # --- `--help` must not drift from what the code does ------------------------
 # Three separate times this session, usage text outlived the behaviour it

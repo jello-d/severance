@@ -127,10 +127,6 @@ provision.
 .B doctor
 Whole-boundary health in one report: installation, records, integrations
 (our own git identity fragment), and the live wall + runner.
-.TP
-.BR context " " resolve | guard
-The discovery seam (resolve the active account; refuse a personal
-account inside the work tree).
 .SH FILES
 .TP
 .I ~/.config/severance/profiles/<name>
@@ -171,7 +167,9 @@ an interface.
 .PP
 .B "severance context"
 was the earlier spelling of this seam, in a consumer's vocabulary rather than
-severance's. It is retired and now exits 2 with a pointer:
+severance's. It is retired and now exits 1 \(em NOT the conventional 2 for a
+usage error, because 2 means "warn, then proceed" in a veto contract and a
+retired boundary verb must fail CLOSED \(em with a pointer:
 .B "context resolve"
 became
 .BR current ", " "context guard" " became " guard .
