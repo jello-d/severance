@@ -34,7 +34,6 @@
 # the record sets claude_config. See docs/work-home.md.
 
 WC_PROFILES_DIR=${WC_PROFILES_DIR:-$HOME/.config/severance/profiles}
-WC_PERSONAL_DIR=${WC_PERSONAL_DIR:-$HOME/.claude}   # the fixed personal base
 # The default-profile marker: a single profile name, written by `severance use`.
 WC_DEFAULT_FILE=${WC_DEFAULT_FILE:-$HOME/.config/severance/default}
 
@@ -146,8 +145,8 @@ wc_load() {   # [name]
 
 # --- "which enclave is this process in?" -------------------------------------
 # THE single answer to that question, for every caller in every package. It
-# lives in the reader, not in a command, so `severance current`, wc_account and
-# anything else are one implementation rather than several that can disagree.
+# lives in the reader, not in a command, so `severance current` and anything
+# else are one implementation rather than several that can disagree.
 
 # Rank a process's membership in $WC_GROUP: 0 = the group is PRIMARY, 1 =
 # supplementary only, 2 = not a member, 3 = UNANSWERABLE (the pid's /proc entry
@@ -226,25 +225,6 @@ wc_current() {   # [pid]
   fi
   wc_reset
   return 1
-}
-
-# wc_account - resolve the active Claude account for THIS process, the single
-# source of the work/personal account rule (the `claude` wrapper and claude-
-# slots both call it, rather than each open-coding the same test). Sets, with no
-# subshell so the WC_* that wc_current set stay visible to the caller:
-#   WC_ACCOUNT_DIR  - config dir: the work claude_config when this process is in
-#                     an enclave, else the personal base.
-#   WC_ACCOUNT_WORK - 1 when the work account was chosen, else 0.
-# Not in any enclave resolves to personal. Built on wc_current, so a process in
-# a NON-DEFAULT profile's group gets that profile's account rather than the
-# default profile's (or personal, which is what resolving one used to give).
-wc_account() {
-  WC_ACCOUNT_DIR=$WC_PERSONAL_DIR
-  WC_ACCOUNT_WORK=0
-  if wc_current 2>/dev/null; then
-    WC_ACCOUNT_DIR=$WC_CLAUDE_CONFIG
-    WC_ACCOUNT_WORK=1
-  fi
 }
 
 # --- the tools table ---------------------------------------------------------

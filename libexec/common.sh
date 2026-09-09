@@ -2,7 +2,7 @@
 # before a verb file (seal.sh / runner.sh / check.sh / ...).
 #
 # It provides three things the ported provisioning logic expects:
-#   1. the work-context reader (wc_load / wc_profiles / wc_account / WC_*);
+#   1. the work-context reader (wc_load / wc_profiles / wc_current / WC_*);
 #   2. report markers -- _ok/_bad/_ignore/_warn + REPORT_RC -- in the plain
 #      [OK]/[FAIL] vocabulary a host's `check` aggregator can recolour, so a
 #      captured `severance check` matches a host's own module checks;
@@ -10,7 +10,7 @@
 #      `seal`/`runner` assemble without the privileged push when asked.
 : "${LIBEXEC:?common.sh: LIBEXEC unset (source via bin/severance)}"
 
-. "$LIBEXEC/work-context.sh"        # wc_load / wc_profiles / wc_account / WC_*
+. "$LIBEXEC/work-context.sh"        # wc_load / wc_profiles / wc_current / WC_*
 
 # Provisioning reads profile records from the runtime dir by default; a host
 # delegator can point us at its own records via SEVERANCE_PROFILES_DIR (e.g. a

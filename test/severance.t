@@ -578,6 +578,45 @@ echo "$out" | grep -q '\[OK\].*default profile -> dg' ||
 case $out in *"names a missing profile"*)
   fail "doctor: flagged a resolvable default" ;; esac
 
+# --- no dead code: a defined function must be CALLED ------------------------
+# wc_account survived as a definition nobody called after the guard stopped
+# resolving through it, and it carried the last hardcoded knowledge of a
+# specific tool's PERSONAL directory (~/.claude) with it. Dead code in a
+# boundary is worse than dead code elsewhere: it reads as a supported path.
+for _f in $(grep -rho '^[a-z_][a-z_0-9]*()' "$SEVROOT/bin" "$SEVROOT/libexec" \
+            | tr -d '()' | sort -u); do
+  # A call is any mention that is not the definition line itself and not a
+  # comment. Tests count: a function driven only by the suite is still live.
+  _n=$(grep -rho "\b$_f\b" "$SEVROOT/bin" "$SEVROOT/libexec" "$SEVROOT/test" \
+       | wc -l)
+  [ "$_n" -gt 1 ] || fail "dead function (defined, never called): $_f"
+done
+
+# --- docs/breaking-changes.md must not outlive the code ---------------------
+# It is a migration record, so it ages differently from the man page: its
+# claims were true when written and quietly stopped being so. It carried an
+# exit code the code no longer returns, and pointed at a share/hooks/ that had
+# been deleted -- while ALSO stating the corrected exit two paragraphs earlier,
+# so it contradicted itself.
+BC=$SEVROOT/docs/breaking-changes.md
+[ -r "$BC" ] || fail "docs/breaking-changes.md missing"
+
+# The exit it quotes for the retired verb, against what the binary returns.
+_rc=0
+env -i PATH="/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$T/empty" \
+  "$SEV" context resolve >/dev/null 2>&1 || _rc=$?
+grep -q "exits \*\*$_rc\*\*" "$BC" ||
+  fail "breaking-changes quotes the wrong exit for 'context' (code: $_rc)"
+
+# It must not present a path the package no longer ships as current. Historical
+# mentions are fine; the test is that any path it names either exists or is
+# spoken of in the past tense.
+for _p in $(grep -o '`share/[a-z/]*`' "$BC" | tr -d '`' | sort -u); do
+  [ -e "$SEVROOT/$_p" ] && continue
+  grep -q "briefly shipped .$_p" "$BC" ||
+    fail "breaking-changes names a shipped path that does not exist: $_p"
+done
+
 # --- the MAN PAGE must not present a retired verb as usable -----------------
 # --help is already held to the code below; the man page is the other thing an
 # integrator reads, and it drifted the same way: it listed `context` under

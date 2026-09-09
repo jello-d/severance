@@ -27,11 +27,18 @@ spelling is live.
     context resolve   ->  severance current
     context guard     ->  severance guard
 
-`severance context <anything>` now exits 2 and prints the mapping.
+`severance context <anything>` now exits **1** and prints the mapping. Not the
+conventional 2 for a usage error: 2 means "warn, then proceed" in a veto
+contract, and a retired boundary verb must fail CLOSED. Exiting 2 turned a
+stale hook into a silently disabled guard, which is the precise failure the
+verb existed to prevent.
 
 **The behaviour is not identical.** `context resolve` printed the literal word
-`personal` outside an enclave. `severance current` prints **nothing**. That
-matters to valet-key specifically; see below.
+`personal` outside an enclave; `severance current` prints **nothing**. That is
+deliberate: `personal` was a consumer's word for its own default, invented here
+because the old seam had no way to say "I looked, and there is no enclave".
+Empty-with-exit-0 says it, and mapping it to whatever a consumer calls its
+baseline is the consumer's business.
 
 ## 2. `work check` and `work current` are gone
 
@@ -118,13 +125,20 @@ hook into valet-key's config dir. Both are gone. Nobody installing a
 work/personal boundary expects it to edit their git config, and special-casing
 git -- of all things -- was the tell that it was the wrong layer.
 
-severance still owns the CONTENT it is integrated by (`share/hooks/`) and
-`severance doctor` still reports anything unwired. Publish the artifact, audit
-the result, do not reach into someone else's config to arrange it.
+It also ships no adapter for anyone, and audits nobody's config. severance
+briefly shipped `share/hooks/` and had `doctor` grade a consumer's hook file;
+both are gone. A copy of severance's own verbs living here for a consumer's
+benefit could only go stale -- and did, leaving deployed copies calling a
+retired verb with a guard silently a no-op. And only the tool that DECLARED a
+seam can tell a hook that answered from one that merely failed, because it is
+the tool that decided what a non-zero exit means there.
 
-On a provisioned box this changes nothing: both were already deferred to the
-host symlink. A STANDALONE box must now wire them itself -- `severance install`
-prints the two commands, and `doctor` reports them as missing until it does.
+severance's CLI is the interface. A one-line hook calling it belongs with
+whoever owns the box; checking that hook belongs to whoever declared the seam.
+
+On a provisioned box the install change is a no-op: both were already deferred
+to the host. A STANDALONE box wires the git include itself -- `severance
+install` prints the command.
 
 ## 9. `work` knows nothing about the box's shell framework
 
@@ -163,93 +177,38 @@ Existing records that set them keep working; `severance validate` warns when
 
 ---
 
-# Per-consumer handoff
+# What a consumer needs
 
-## tackup
+The fleet migration these notes describe is **complete**; what follows is the
+resulting shape, not a to-do list. An earlier draft of this section prescribed
+an intermediate one -- a `context` file answering `resolve` and `guard` -- and
+kept prescribing it after nothing read that any more, which is exactly the
+failure mode the notes above are about.
 
-**Delete `link/config/mux/context-token`.** Its whole body was the
-reconstruction that `severance current` now does in one call, and it had to
-invoke BOTH binaries (`work check` for the predicate, `severance show --shell`
-for the value) precisely because the query was split. Point mux's config
-straight at severance instead:
+**The whole interface is two commands.**
 
-    # link/config/mux/config
-    context-command   severance current
+    severance current [PID]   which enclave is this process in?
+                              exit 0 answered (a name, or nothing when it is in
+                              none); exit 2 could not answer
+    severance guard           may this proceed here?
+                              exit 0 ok; exit 1 refuse, message on stderr
 
-`link/config/mux/context` (the older 70-line hook that supplied a tmux style
-string) can go at the same time if every machine is on mux 0.3.
+Nothing else is a contract. `show` is a human report, and there is no
+eval-able dump of internals.
 
-**This one is urgent, not cosmetic.** tackup's shim is the one installed on a
-provisioned box (severance defers to the symlink), it still calls the retired
-verb, and until it is fixed valet-key's ZDR guard does nothing there.
+**A session manager** that wants to name the context runs `severance current`
+and takes the word. mux does exactly that as its `context-command`, with no
+hook file: empty output or a non-zero exit means its baseline, which is what
+"not in an enclave" and "could not tell" should both produce there.
 
-**Decide whether to keep shipping `link/config/valet-key/context` at all.**
-severance's own `install` publishes exactly this hook
-(`libexec/install.sh:_wire_valet_key`) and now generates the correct version
-for the new verbs. tackup ships a second copy as a symlink, and severance
-detects the symlink and defers to it ("host-managed; leaving it"), so the
-tackup copy wins on this box and would keep calling the retired `context`.
+**A credential router** that wants to select an account and refuse an
+incoherent launch calls both verbs. valet-key does that through two hook
+DIRECTORIES -- a selector and a veto, where a hook's directory is the verb --
+so its integration is one line in each, and neither package names the other.
+Those files belong to whoever configures the box.
 
-Either drop tackup's copy and let `severance install` own it, or update
-tackup's copy to match what severance now generates:
-
-    set -eu
-    command -v severance >/dev/null 2>&1 || {
-      case "${1:-}" in resolve) echo personal ;; esac; exit 0; }
-    case "${1:-}" in
-      resolve) p=$(severance current) || exit 1
-               printf '%s\n' "${p:-personal}" ;;
-      guard)   shift; exec severance guard "$@" ;;
-    esac
-    exit 0
-
-Both the `${p:-personal}` and the `|| exit 1` are load-bearing, not cosmetic.
-See the valet-key note.
-
-**Audit for the old `work` grammar.** Any `work <cmd>` in a script becomes
-`work run -- <cmd>`. Scripted callers fail loudly (exit 2, usage on stderr)
-rather than silently, so a grep plus a test run will find them all.
-
-## mux
-
-**Fix the README.** It documents
-
-    context-command   severance mux-context
-
-There is no `mux-context` verb in severance and there never was. The working
-example is:
-
-    context-command   severance current
-
-which needs no hook file at all. `severance current` already satisfies mux's
-contract exactly: one word on stdout, empty output meaning `global`, exit 0.
-
-**No code change is needed.** mux validates the token as a DNS label already,
-and severance now lints profile names to the same shape, so the two agree by
-construction instead of by luck.
-
-## valet-key
-
-**One behaviour change to be aware of.** `resolve_profile` treats a non-empty
-answer from the hook as authoritative and an **empty** answer as "no opinion",
-after which it falls through to its own cwd matcher and then `DEFAULT_PROFILE`.
-`severance context resolve` used to return the positive token `personal`, which
-short-circuited that matcher. `severance current` returns empty.
-
-So a shim that forwards `current` verbatim would **silently re-enable cwd
-matching in the personal case** -- a quiet behaviour change, which is why the
-tackup shim above maps empty to `personal` explicitly rather than passing it
-through.
-
-**The deeper fix is in the hook contract, not the shim.** `resolve` conflates
-two different answers into "empty": "I have no opinion" and "I definitely have
-no special context". A provider that knows the answer is personal cannot say so
-without inventing a token. Consider: exit 0 with a token means that context,
-exit 0 with empty means *definitely baseline* (do not run the cwd matcher), and
-a NON-ZERO exit means "cannot answer" and is the only thing that should fall
-through to heuristics. That deletes the need for the `${p:-personal}` mapping
-in every shim, everywhere.
-
-**Consider adding name validation.** valet-key currently validates profile
-names not at all. If the fleet is standardising on DNS labels as identity,
-this is the remaining gap.
+**Anything else** is the same shape: call the verb, read the exit status.
+severance ships no adapter, hook or shim for any consumer, and audits none of
+their config. If a consumer's seam has a shape severance's CLI does not fit,
+the adapter for it lives with the consumer or the integrator -- never here,
+where it would be a copy of our own verbs going stale behind our back.
