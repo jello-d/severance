@@ -20,7 +20,13 @@
 # quietly mutated a machine the moment it was run under sudo would be a worse
 # bug than the one it is testing.
 #
-#   SEVERANCE_TEST_PRIVILEGED=1 sudo -E sh test/wall-privileged.t
+#   sudo env SEVERANCE_TEST_PRIVILEGED=1 sh test/wall-privileged.t
+#
+# `env` and not `sudo -E`: many sudoers configurations refuse -E outright
+# ("preserving the entire environment is not supported, '-E' is ignored"), and
+# the failure is SILENT in the worst way -- the opt-in is stripped, the test
+# skips, and it still prints ok. Setting the variable as part of the command
+# survives whatever the sudo policy is.
 #
 # Everything it makes is removed on exit, including on failure.
 set -eu
@@ -29,7 +35,10 @@ set -eu
 harness_init wall-privileged
 
 [ "${SEVERANCE_TEST_PRIVILEGED:-}" = 1 ] || {
-  echo "ok   $TEST_NAME (skipped: set SEVERANCE_TEST_PRIVILEGED=1 to opt in)"
+  # Name the working invocation, because the most likely reason to land here
+  # is not "you forgot" -- it is that sudo dropped the variable.
+  echo "ok   $TEST_NAME (skipped: opt in with"
+  echo "     sudo env SEVERANCE_TEST_PRIVILEGED=1 sh test/$TEST_NAME.t )"
   exit 0; }
 [ "$(id -u)" = 0 ] || {
   echo "ok   $TEST_NAME (skipped: needs real root; see the header)"; exit 0; }

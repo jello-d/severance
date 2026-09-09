@@ -211,12 +211,25 @@ per clone:
 
     git config core.hooksPath .githooks
 
-`test/run` runs everything and needs no privileges. `test/seal-real.t`
-provisions
+`test/run` runs everything and needs no privileges.
+
+One test is gated on real root AND an explicit opt-in, because it creates a
+group and drops to another account:
+
+    sudo env SEVERANCE_TEST_PRIVILEGED=1 sh test/wall-privileged.t
+
+`env`, not `sudo -E`: many sudoers refuse -E, and the failure is silent in the
+worst way -- the opt-in is stripped, the test skips, and it still prints `ok`.
+It proves the claim nothing else can reach: a non-member cannot traverse, list,
+or read inside a sealed tree; a member can; and a file born inside inherits the
+wall.
+
+`test/seal-real.t` provisions
 a REAL wall -- actual chown/chmod/setfacl, audited by the real `stat` and
 `getfacl` with nothing stubbed -- inside a `bubblewrap` user namespace, and
 SKIPS itself where bubblewrap or user namespaces are unavailable. It cannot
-prove the one thing that needs a second identity: that a non-member is DENIED.
-Only a single id is mapped, root inside bypasses the permission bits the wall
-is made of, and mapping a range needs `newuidmap` through a user namespace many
-systems deny unprivileged processes. That proof needs real root or a VM.
+prove the one thing that needs a second identity -- that a non-member is DENIED
+-- which is why `wall-privileged.t` above exists. Only a single id is mapped,
+root inside bypasses the permission bits the wall is made of, and mapping a
+range needs `newuidmap` through a user namespace many systems deny unprivileged
+processes.
