@@ -27,6 +27,16 @@ _runner_vars() {
   TMPFILES=$TMPFILES_DIR/$RUNNER.conf
 }
 
+# The socket-dir tmpfiles line: 0710 so a group member can TRAVERSE in to the
+# socket while everyone else is denied at the directory, owned runner:<group>
+# so the daemon writes it and the group reads it. Its own function because it
+# is pure -- derived entirely from _runner_vars and WC_GROUP -- and the apply
+# path around it needs root, so this is the part a test can pin down without
+# any privilege at all.
+_render_tmpfiles() {
+  printf 'd %s 0710 %s %s -\n' "$SOCK_DIR" "$RUNNER" "$WC_GROUP"
+}
+
 _primary_group() { id -gn "$1" 2>/dev/null; }
 _has_subids() { grep -q "^$RUNNER:" "$1" 2>/dev/null; }
 _has_traverse() {
@@ -189,7 +199,7 @@ _provision_one() {
 
   # 4. socket dir: group-traversable (0710), owner:group = runner:<group>.
   _tf=$(mktemp)
-  printf 'd %s 0710 %s %s -\n' "$SOCK_DIR" "$RUNNER" "$WC_GROUP" > "$_tf"
+  _render_tmpfiles > "$_tf"
   if cmp -s "$_tf" "$TMPFILES" 2>/dev/null; then
     echo "severance: $RUNNER tmpfiles $TMPFILES current"
   else
