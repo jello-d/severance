@@ -617,6 +617,22 @@ for _p in $(grep -o '`share/[a-z/]*`' "$BC" | tr -d '`' | sort -u); do
     fail "breaking-changes names a shipped path that does not exist: $_p"
 done
 
+# --- no doc may promise something that does not exist -----------------------
+# The machine-interface promise read "will not change without a major version
+# bump" -- against a package with no version, no --version, and no way to bump
+# one. A stability guarantee nobody can check is not a guarantee; it is a
+# sentence. Either carry a version or promise something true.
+_has_ver=0
+env -i PATH="/usr/bin:/bin" HOME="$T" "$SEV" --version \
+  >/dev/null 2>&1 && _has_ver=1
+if [ "$_has_ver" = 0 ]; then
+  for _d in "$SEVROOT/README.md" "$SEVROOT/man/man1/severance.1" \
+            "$SEVROOT/bin/severance" "$SEVROOT/docs/breaking-changes.md"; do
+    grep -q "version bump" "$_d" &&
+      fail "${_d##*/} promises a version bump, but there is no version to bump"
+  done
+fi
+
 # --- the MAN PAGE must not present a retired verb as usable -----------------
 # --help is already held to the code below; the man page is the other thing an
 # integrator reads, and it drifted the same way: it listed `context` under

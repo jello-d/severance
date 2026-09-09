@@ -26,7 +26,7 @@ lacking the group, is denied by the filesystem.
 
 ## Install
 
-    ./bin/severance install      # symlink into ~/.local, wire host hooks
+    ./bin/severance install      # symlink into ~/.local -- and nothing else
     # ensure ~/.local/bin is on PATH
 
 `install` symlinks the package and does **nothing else**: it configures no
@@ -144,9 +144,17 @@ rather than two.
 
 ### Machine interface
 
-Stable contracts consumed by other tools. Their output shape and exit codes
-will not change without a major version bump. Everything else in this README is
-a human report or a mutation, free to change its wording.
+Stable contracts consumed by other tools. Their output shape and exit codes do
+not change silently: a change to either is a **breaking** change, recorded in
+`docs/breaking-changes.md`, and the retired spelling fails loud rather than
+being quietly aliased -- `severance context` still exits non-zero naming its
+replacement. Everything else in this README is a human report or a mutation,
+free to change its wording.
+
+There is deliberately no version string to check. A consumer that needs to know
+whether this severance supports a verb should RUN it -- `severance current`
+either answers or does not -- which is what `doctor` does, and what a version
+number could only claim.
 
 - `severance current [PID]` -- the profile name on stdout, or nothing.
   Exit **0** answered (empty output means "not in an enclave", which is not an

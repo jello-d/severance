@@ -51,7 +51,9 @@ usage: severance <command> [args]
                              the enclave group
 
 machine interface -- the STABLE contracts, consumed by other tools. Their
-output shape and exit codes will not change without a major version bump:
+output shape and exit codes do not change silently: a change to either is a
+BREAKING change, recorded in docs/breaking-changes.md, and the retired
+spelling fails loud rather than being quietly aliased:
   current [PID]              exit 0 = answered (one word, or nothing when the
                              process is in no enclave); exit 2 = could NOT
                              answer (bad pid, or no such process)

@@ -64,9 +64,9 @@ fails loud rather than guessing a group.
 .TP
 .B install \fR/\fB uninstall
 Standalone only: symlink the package into
-.I ~/.local
-Links ONLY: it configures no other tool. A guarded no-op under a host that
-already symlinks the package.
+.IR ~/.local ,
+and nothing else \(em it configures no other tool. A guarded no-op under a host
+that already symlinks the package.
 .TP
 .B list
 List provisioned profiles;
@@ -150,8 +150,10 @@ Override the profiles directory (a host points this at its records).
 and
 .B guard
 are the STABLE contracts consumed by other tools: their output shape and exit
-codes will not change without a major version bump. Every other command is a
-human report or a mutation and is free to change its wording.
+codes do not change silently. A change to either is a BREAKING change, recorded
+in docs/breaking-changes.md, and a retired spelling fails loud rather than
+being quietly aliased. Every other command is a human report or a mutation and
+is free to change its wording.
 .PP
 There is deliberately nothing else.
 .B "show --shell"
