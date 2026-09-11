@@ -219,7 +219,10 @@ per clone:
 
     git config core.hooksPath .githooks
 
-`test/run` runs everything and needs no privileges.
+`test/run` runs everything and needs no privileges. Each test must ANNOUNCE
+itself with an `ok` or `FAIL` line; one that exits without a verdict -- a
+syntax error, a missing command -- is reported by name as `ABORT`, because
+"aborted before it could assert anything" and "passed" must not look alike.
 
 One test is gated on real root AND an explicit opt-in, because it creates a
 group and drops to another account:

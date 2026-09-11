@@ -1,12 +1,45 @@
 #!/bin/sh
 # test/run - run every severance shell test (test/*.t) and report. Non-zero if
 # any test fails. POSIX sh, no dependency beyond a shell and the repo checkout.
+#
+# Each test must ANNOUNCE ITSELF: a line `ok <name>` or `FAIL <name>`. A test
+# that exits without one has ABORTED -- a syntax error, a missing command, an
+# unset variable under set -u -- and the runner says so, by name.
+#
+# That matters because the alternative is what this used to do: the shell's own
+# error scrolled past mid-run with no test name attached, no verdict line, and
+# nothing distinguishing "aborted before it could assert anything" from "never
+# ran". The exit status was right and the report was silent, which is the exact
+# failure this suite exists to catch everywhere else.
 set -eu
 _dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 _rc=0
 for _t in "$_dir"/*.t; do
   [ -f "$_t" ] || continue
-  sh "$_t" || _rc=1
+  _name=${_t##*/}; _name=${_name%.t}
+  # `|| _trc=$?` and NOT `; _trc=$?`: under set -e a command substitution that
+  # exits non-zero kills THIS script before the next line runs, so the first
+  # failing test would abort the runner -- silently, with no verdict for the
+  # test that failed or any test after it. The first version of this loop did
+  # exactly that, which is the bug it was written to catch.
+  _trc=0
+  _out=$(sh "$_t" 2>&1) || _trc=$?
+  [ -n "$_out" ] && printf '%s\n' "$_out"
+
+  if printf '%s\n' "$_out" | grep -q "^ok   $_name"; then
+    # Said ok but exited non-zero: the verdict and the status disagree, and a
+    # green line over a failing exit is worse than either alone.
+    if [ "$_trc" != 0 ]; then
+      printf 'ABORT %s: printed ok but exited %s\n' "$_name" "$_trc" >&2
+      _rc=1
+    fi
+  elif printf '%s\n' "$_out" | grep -q "^FAIL $_name"; then
+    _rc=1
+  else
+    printf 'ABORT %s: exited %s without a verdict (no ok/FAIL line)\n' \
+      "$_name" "$_trc" >&2
+    _rc=1
+  fi
 done
 [ "$_rc" -eq 0 ] && echo "all severance tests passed"
 exit "$_rc"
