@@ -235,12 +235,20 @@ It proves the claim nothing else can reach: a non-member cannot traverse, list,
 or read inside a sealed tree; a member can; and a file born inside inherits the
 wall.
 
-`test/seal-real.t` provisions
-a REAL wall -- actual chown/chmod/setfacl, audited by the real `stat` and
-`getfacl` with nothing stubbed -- inside a `bubblewrap` user namespace, and
-SKIPS itself where bubblewrap or user namespaces are unavailable. It cannot
-prove the one thing that needs a second identity -- that a non-member is DENIED
--- which is why `wall-privileged.t` above exists. Only a single id is mapped,
-root inside bypasses the permission bits the wall is made of, and mapping a
-range needs `newuidmap` through a user namespace many systems deny unprivileged
-processes.
+`test/seal-real.t` provisions a REAL wall -- actual chown/chmod/setfacl,
+audited by the real `stat` and `getfacl` with nothing stubbed -- inside a
+`bubblewrap` user namespace, and SKIPS itself where bubblewrap or user
+namespaces are unavailable. It cannot prove the one thing that needs a second
+identity -- that a non-member is DENIED -- which is why `wall-privileged.t`
+above exists. Only a single id is mapped, root inside bypasses the permission
+bits the wall is made of, and mapping a range needs `newuidmap` through a user
+namespace many systems deny unprivileged processes.
+
+Everything else is rootless. Where a privileged path cannot be run, its PURE
+parts are pulled out and driven directly rather than left uncovered: the
+runner's derived paths, the tmpfiles line that decides who can traverse to the
+docker socket, and the relay unit's `group=` substitution are all plain text
+computed before any `sudo`, and `test/runner-unit.t` checks them. The runner's
+apply itself -- it creates a system account, subordinate id ranges, linger and
+`--user` units -- is the one thing with no coverage, because running it would
+mutate the machine under test.

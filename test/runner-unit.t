@@ -39,8 +39,8 @@ fn() {   # <name>
 
 # Drive the named functions with a given environment.
 drive() {   # <env-assignments> <expression>
-  for _f in _runner_vars _render_tmpfiles _has_subids _next_subid_block \
-            _has_traverse; do
+  for _f in _runner_vars _render_tmpfiles _render_relay_unit _has_subids \
+            _next_subid_block _has_traverse; do
     fn "$_f"
   done > "$T/fns"
   # A malformed extraction must fail LOUDLY, not silently define nothing.
@@ -87,6 +87,45 @@ case $out in
   *" r manifest -") ;;
   *) fail "tmpfiles line does not own the socket dir runner:<group>: '$out'" ;;
 esac
+
+# --- _render_relay_unit: who can reach the DOCKER SOCKET ---------------------
+# The relay unit is what fronts the runner's private rootless-docker socket
+# with a host-visible one, and @GROUP@ becomes `group=` on the listening
+# socket. A wrong value there opens the daemon to the whole box -- root inside
+# a container is root on the bind mounts -- so this substitution is as
+# load-bearing as the wall itself, and it is pure text.
+cat > "$T/relay.in" <<'EOF'
+ExecStart=/usr/bin/socat -t 86400 \
+    UNIX-LISTEN:@HOSTSOCK@,fork,mode=0660,group=@GROUP@,unlink-early \
+    UNIX-CONNECT:@INTSOCK@
+EOF
+out=$(drive "WC_RUNNER=demo-runner; WC_GROUP=wg; TMPFILES_DIR=/x
+             RELAY_SRC=$T/relay.in; _ruid=4242" \
+  '_runner_vars; _render_relay_unit')
+case $out in
+  *"group=wg,"*) ;;
+  *) fail "relay unit does not gate the socket on the enclave group: $out" ;;
+esac
+case $out in
+  *"UNIX-LISTEN:/run/demo-runner/docker.sock,"*) ;;
+  *) fail "relay unit listens on the wrong host socket: $out" ;;
+esac
+case $out in
+  *"UNIX-CONNECT:/run/user/4242/docker.sock"*) ;;
+  *) fail "relay unit connects to the wrong internal socket: $out" ;;
+esac
+# No placeholder may survive: an unsubstituted @GROUP@ would be a literal
+# group name, socat would fail to start, and the enclave would have no docker
+# with nothing saying why.
+case $out in
+  *@*@*) fail "an unsubstituted placeholder survived: $out" ;;
+esac
+
+# mode=0660 and not 0666: the socket is reached BY GROUP, which is the same
+# rule as the tree. Asserted against the SHIPPED template, since that is what
+# provisioning actually renders.
+grep -q 'mode=0660' "$HERE/share/runner/docker-sock.service" ||
+  fail "the shipped relay template does not gate the socket 0660"
 
 # --- _next_subid_block: never overlap an existing allocation ----------------
 # Two accounts sharing a subordinate range would let one runner's containers

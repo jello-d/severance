@@ -219,8 +219,15 @@ _check_sealed_dir() {
   else _bad "$_cl dir default other ACL not '---' (creds may leak)"; fi
 }
 
-_seal_check_one() {
-  echo "-- $WC_PROFILE (group $WC_GROUP) --"
+# The audit, one CONCERN per function. Each reports its own verdicts through
+# the markers and returns nothing: _seal_check_one is the order they run in,
+# not a place logic lives. Split because it had grown to six unrelated
+# questions in one body, where a reader had to hold all of them at once to see
+# that any one of them was right.
+
+# The group exists, and the login user is NOT a permanent member -- membership
+# must be transient, acquired per session by `work` and gone when it exits.
+_check_group() {
   if getent group "$WC_GROUP" >/dev/null 2>&1; then
     _ok "group '$WC_GROUP' present"
   else _bad "group '$WC_GROUP' missing"; fi
@@ -228,72 +235,95 @@ _seal_check_one() {
   if _permanent_member; then
     _bad "$USER_NAME is a PERMANENT member of '$WC_GROUP' (must be transient)"
   else _ok "$USER_NAME not a permanent member of '$WC_GROUP'"; fi
+}
 
-  if [ -d "$WC_DIR" ]; then
-    owner=$(stat -c '%U:%G' "$WC_DIR" 2>/dev/null || echo '?')
-    mode=$(stat -c '%a' "$WC_DIR" 2>/dev/null || echo '?')
-    _acl=$(getfacl -p "$WC_DIR" 2>/dev/null || true)
-    if [ "$owner" = "root:$WC_GROUP" ]; then _ok "work_dir owner root:$WC_GROUP"
-    else _bad "work_dir owner $owner, want root:$WC_GROUP"; fi
-    if [ "$mode" = 2770 ]; then _ok "work_dir mode 2770 (the traversal gate)"
-    else _bad "work_dir mode ${mode:-?}, want 2770 (other must be denied)"; fi
-    if printf '%s\n' "$_acl" | grep -q "^default:group:$WC_GROUP:rwx"; then
-      _ok "work_dir default group ACL for '$WC_GROUP'"
-    else _bad "work_dir missing default group ACL for '$WC_GROUP'"; fi
-    if printf '%s\n' "$_acl" | grep -q "^default:other::---"; then
-      _ok "work_dir default other ACL denies new entries"
-    else _bad "work_dir default other ACL not '---' (new entries may leak)"; fi
-  else _ok "work_dir $WC_DIR absent (nothing to seal yet)"; fi
+# THE WALL: work_dir root-owned, 2770, and the two default ACL entries that
+# decide what a file created LATER inherits. The mode denies a non-member at
+# traversal; the default ACLs are what survive an edit, where ownership does
+# not.
+_check_gate() {
+  [ -d "$WC_DIR" ] || { _ok "work_dir $WC_DIR absent (nothing to seal yet)"
+    return 0; }
+  owner=$(stat -c '%U:%G' "$WC_DIR" 2>/dev/null || echo '?')
+  mode=$(stat -c '%a' "$WC_DIR" 2>/dev/null || echo '?')
+  _acl=$(getfacl -p "$WC_DIR" 2>/dev/null || true)
+  if [ "$owner" = "root:$WC_GROUP" ]; then _ok "work_dir owner root:$WC_GROUP"
+  else _bad "work_dir owner $owner, want root:$WC_GROUP"; fi
+  if [ "$mode" = 2770 ]; then _ok "work_dir mode 2770 (the traversal gate)"
+  else _bad "work_dir mode ${mode:-?}, want 2770 (other must be denied)"; fi
+  if printf '%s\n' "$_acl" | grep -q "^default:group:$WC_GROUP:rwx"; then
+    _ok "work_dir default group ACL for '$WC_GROUP'"
+  else _bad "work_dir missing default group ACL for '$WC_GROUP'"; fi
+  if printf '%s\n' "$_acl" | grep -q "^default:other::---"; then
+    _ok "work_dir default other ACL denies new entries"
+  else _bad "work_dir default other ACL not '---' (new entries may leak)"; fi
+}
 
-  # The sealed config root WORK_HOME/.config sits INSIDE the gate, so a plain
-  # personal process cannot stat it (needs the sudo cache or the work group);
-  # report unverifiable rather than crying false drift. See docs/work-home.md.
-  if [ -d "$WC_DIR" ]; then
-    _wc=$(_workhome_config)
-    _wo=$(sudo -n stat -c '%U:%G' "$_wc" 2>/dev/null \
-          || stat -c '%U:%G' "$_wc" 2>/dev/null || echo '')
-    _wm=$(sudo -n stat -c '%a' "$_wc" 2>/dev/null \
-          || stat -c '%a' "$_wc" 2>/dev/null || echo '')
-    if [ -n "$_wo" ]; then
-      if [ "$_wo" = "root:$WC_GROUP" ] && [ "$_wm" = 2770 ]; then
-        _ok "config root .config sealed (root:$WC_GROUP 2770)"
-      else
-        _bad "config root .config $_wo mode $_wm, want root:$WC_GROUP 2770"
-      fi
-    elif sudo -n true 2>/dev/null; then
-      _bad "config root $_wc absent (re-run apply)"
-    else _ok "config root .config unverifiable here (need sudo cache/group)"; fi
-  fi
+# The sealed config root WORK_HOME/.config sits INSIDE the gate, so a plain
+# personal process cannot stat it (needs the sudo cache or the work group);
+# report unverifiable rather than crying false drift. See docs/work-home.md.
+_check_config_root() {
+  [ -d "$WC_DIR" ] || return 0
+  _wc=$(_workhome_config)
+  _wo=$(sudo -n stat -c '%U:%G' "$_wc" 2>/dev/null \
+        || stat -c '%U:%G' "$_wc" 2>/dev/null || echo '')
+  _wm=$(sudo -n stat -c '%a' "$_wc" 2>/dev/null \
+        || stat -c '%a' "$_wc" 2>/dev/null || echo '')
+  if [ -n "$_wo" ]; then
+    if [ "$_wo" = "root:$WC_GROUP" ] && [ "$_wm" = 2770 ]; then
+      _ok "config root .config sealed (root:$WC_GROUP 2770)"
+    else
+      _bad "config root .config $_wo mode $_wm, want root:$WC_GROUP 2770"
+    fi
+  elif sudo -n true 2>/dev/null; then
+    _bad "config root $_wc absent (re-run apply)"
+  else _ok "config root .config unverifiable here (need sudo cache/group)"; fi
+}
 
+# Each table row marked `yes` whose tool is installed: an absent tool has no
+# dir to audit, which is not drift.
+_check_tool_dirs() {
   wc_tools | while read -r _tool _env _dir _seal; do
     [ "$_seal" = yes ] || continue
     command -v "$_tool" >/dev/null 2>&1 || continue
     _check_sealed_dir "$_tool" "$WC_CONFIG_ROOT/$_dir"
   done
+}
 
-  # The enclave OWNS its CLAUDE.md (seed-only); verify presence, never content.
-  if [ -d "$WC_DIR" ]; then
-    _dst=$WC_DIR/CLAUDE.md
-    if sudo -n test -e "$_dst" 2>/dev/null || [ -e "$_dst" ]; then
-      _ok "enclave CLAUDE.md present (enclave-owned)"
-    elif sudo -n true 2>/dev/null; then
-      _ok "enclave CLAUDE.md absent (seeded on apply)"
-    else
-      _ok "enclave CLAUDE.md unverifiable here (need sudo cache/work group)"
-    fi
+# The enclave OWNS its CLAUDE.md (seed-only); verify presence, never content.
+_check_enclave_md() {
+  [ -d "$WC_DIR" ] || return 0
+  _dst=$WC_DIR/CLAUDE.md
+  if sudo -n test -e "$_dst" 2>/dev/null || [ -e "$_dst" ]; then
+    _ok "enclave CLAUDE.md present (enclave-owned)"
+  elif sudo -n true 2>/dev/null; then
+    _ok "enclave CLAUDE.md absent (seeded on apply)"
+  else
+    _ok "enclave CLAUDE.md unverifiable here (need sudo cache/work group)"
   fi
+}
 
+# Repos on the wrong side of the boundary, minus the sanctioned carve-outs.
+_check_repos() {
   if [ -n "$WC_ENCLAVE_PERSONAL" ]; then
     _ok "sanctioned personal repos in work_dir: $WC_ENCLAVE_PERSONAL"
   fi
-
-
   findings=$(audit_repos)
   if [ -n "$findings" ]; then
     tmp=$(mktemp); printf '%s\n' "$findings" > "$tmp"
     while IFS= read -r f; do [ -n "$f" ] && _bad "$f"; done < "$tmp"
     rm -f "$tmp"
   else _ok "repos consistent (remote glob matches work tree)"; fi
+}
+
+_seal_check_one() {
+  echo "-- $WC_PROFILE (group $WC_GROUP) --"
+  _check_group
+  _check_gate
+  _check_config_root
+  _check_tool_dirs
+  _check_enclave_md
+  _check_repos
 }
 
 sev_seal_check() {

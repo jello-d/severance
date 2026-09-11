@@ -78,11 +78,14 @@ _as_runner() {   # <cmd> [args...]
 # NOTE: callers invoke this in a set-e-suppressed context (a tested return), so
 # EVERY critical step checks its own failure with `|| return 1`, not set -e.
 # It ends by verifying the real end-state (the socket exists).
-_bring_up_docker() {
-  _ruid=$(id -u "$RUNNER")
-  # linger enables the runner's --user systemd manager, but ASYNC; setuptool
-  # bails ("systemd not detected") without it. Start it and wait until it
-  # answers, else the whole rootless-docker install silently no-ops.
+# Bringing the runner's rootless docker up, one PHASE per function. Each can
+# fail on its own terms and says why; _bring_up_docker is the order, not a
+# place logic lives.
+
+# linger enables the runner's --user systemd manager, but ASYNC; setuptool
+# bails ("systemd not detected") without it. Start it and wait until it
+# answers, else the whole rootless-docker install silently no-ops.
+_wait_user_systemd() {
   sudo systemctl start "user@$_ruid.service" 2>/dev/null || true
   _n=0
   until _as_runner systemctl --user show --property=Version >/dev/null 2>&1; do
@@ -92,23 +95,37 @@ _bring_up_docker() {
       return 1; }
     sleep 1
   done
-  _ud=$RUNNER_HOME/.config/systemd/user
-  sudo -u "$RUNNER" mkdir -p "$_ud"
+}
 
+_install_rootless_docker() {
   if _as_runner test -f "$_ud/docker.service"; then
     echo "severance: $RUNNER rootless docker --user service present"
-  else
-    _as_runner dockerd-rootless-setuptool.sh install || true
-    _as_runner test -f "$_ud/docker.service" || {
-      echo "severance: $RUNNER setuptool did NOT install docker.service" \
-           "(systemd not detected?)" >&2; return 1; }
-    echo "severance: $RUNNER installed rootless docker --user service"
+    return 0
   fi
+  _as_runner dockerd-rootless-setuptool.sh install || true
+  _as_runner test -f "$_ud/docker.service" || {
+    echo "severance: $RUNNER setuptool did NOT install docker.service" \
+         "(systemd not detected?)" >&2; return 1; }
+  echo "severance: $RUNNER installed rootless docker --user service"
+}
 
-  _rt=$(mktemp); _relay_changed=0
+# The relay unit, templated. PURE -- a filter over RELAY_SRC -- so the part
+# that decides who can reach the docker socket is testable without a runner,
+# a daemon or root. @GROUP@ is the load-bearing substitution: it becomes
+# `group=` on the listening socket, and a wrong value there opens the daemon
+# to the whole box.
+_render_relay_unit() {
   sed -e "s#@HOSTSOCK@#$SOCK_DIR/docker.sock#" \
       -e "s#@INTSOCK@#/run/user/$_ruid/docker.sock#" \
-      -e "s#@GROUP@#$WC_GROUP#" "$RELAY_SRC" > "$_rt"
+      -e "s#@GROUP@#$WC_GROUP#" "$RELAY_SRC"
+}
+
+# Install it if it differs, and REPORT whether it changed: `enable --now` does
+# not restart an already-running unit, so a content change would otherwise not
+# take effect until the next boot.
+_install_relay_unit() {
+  _rt=$(mktemp); _relay_changed=0
+  _render_relay_unit > "$_rt"
   if _as_runner cmp -s "$_rt" "$_ud/work-docker-sock.service" 2>/dev/null; then
     echo "severance: $RUNNER socat relay unit current"
   else
@@ -120,19 +137,22 @@ _bring_up_docker() {
     echo "severance: $RUNNER installed socat relay unit"
   fi
   rm -f "$_rt"
+}
 
+_start_units() {
   _as_runner systemctl --user daemon-reload || true
   _as_runner systemctl --user enable --now docker.service \
     work-docker-sock.service || {
       echo "severance: $RUNNER failed to enable dockerd/relay units" >&2
       return 1; }
-  # `enable --now` does NOT restart an already-running relay, so a unit-content
-  # change (e.g. the socat -t fix) would not take effect. Restart it on change.
   if [ "$_relay_changed" = 1 ]; then
     _as_runner systemctl --user restart work-docker-sock.service || true
     echo "severance: $RUNNER restarted socat relay (unit changed)"
   fi
+}
 
+# The socket is the whole point: until it exists, the enclave has no docker.
+_wait_socket() {
   _n=0
   until sudo test -S "$SOCK_DIR/docker.sock"; do
     _n=$((_n + 1))
@@ -144,6 +164,16 @@ _bring_up_docker() {
   echo "severance: $RUNNER dockerd + relay up ($SOCK_DIR/docker.sock)"
 }
 
+_bring_up_docker() {
+  _ruid=$(id -u "$RUNNER")
+  _ud=$RUNNER_HOME/.config/systemd/user
+  _wait_user_systemd || return 1
+  sudo -u "$RUNNER" mkdir -p "$_ud"
+  _install_rootless_docker || return 1
+  _install_relay_unit || return 1
+  _start_units || return 1
+  _wait_socket
+}
 # Global (profile-independent) prerequisites.
 _deps_ok() {
   command -v docker >/dev/null 2>&1 || {
@@ -157,13 +187,9 @@ _deps_ok() {
 }
 
 # Provision the CURRENT profile's runner (WC_* + _runner_vars already set).
-_provision_one() {
-  echo "severance: provisioning '$RUNNER' ($WC_PROFILE, login gid $WC_GROUP)"
-  getent group "$WC_GROUP" >/dev/null 2>&1 || {
-    echo "severance: group '$WC_GROUP' missing (run 'severance seal')" >&2
-    return 1; }
-
-  # 1. account with the profile group as PRIMARY (login) group (newuidmap key).
+# The runner ACCOUNT: the profile group as its PRIMARY (login) group, which is
+# what makes newuidmap map it and what lets it reach work_dir at all.
+_ensure_account() {
   if id "$RUNNER" >/dev/null 2>&1; then
     echo "severance: user '$RUNNER' present"
   else
@@ -178,8 +204,11 @@ _provision_one() {
     sudo usermod -g "$WC_GROUP" "$RUNNER"
     echo "severance: $RUNNER primary group set '$WC_GROUP'"
   fi
+}
 
-  # 2. rootless id mapping + lingering.
+# Rootless id mapping + lingering: the subordinate ranges rootless docker maps
+# containers into, and the --user manager that survives having no session.
+_ensure_mapping_and_linger() {
   _ensure_subids uid
   _ensure_subids gid
   if _linger_on; then
@@ -188,16 +217,23 @@ _provision_one() {
     sudo loginctl enable-linger "$RUNNER"
     echo "severance: $RUNNER lingering on"
   fi
+}
 
-  # 3. traverse-only ACL so the runner can walk $HOME (0750) to the tree.
+# Traverse-ONLY ACL so the runner can walk $HOME (0750) to reach the tree. Not
+# read: it needs to pass through, not to look around.
+_ensure_traverse_acl() {
   if _has_traverse; then
     echo "severance: $RUNNER traverse ACL present"
   else
     setfacl -m u:"$RUNNER":--x "$HOME"
     echo "severance: $RUNNER traverse ACL set"
   fi
+}
 
-  # 4. socket dir: group-traversable (0710), owner:group = runner:<group>.
+# The socket dir, via tmpfiles so it survives a reboot: 0710 owner:group =
+# runner:<group>, so a group member traverses in and everyone else is denied
+# at the directory.
+_ensure_socket_dir() {
   _tf=$(mktemp)
   _render_tmpfiles > "$_tf"
   if cmp -s "$_tf" "$TMPFILES" 2>/dev/null; then
@@ -208,11 +244,19 @@ _provision_one() {
     echo "severance: $RUNNER installed $TMPFILES"
   fi
   rm -f "$_tf"
-
-  # 5. rootless dockerd + socat relay on the group socket.
-  _bring_up_docker
 }
 
+_provision_one() {
+  echo "severance: provisioning '$RUNNER' ($WC_PROFILE, login gid $WC_GROUP)"
+  getent group "$WC_GROUP" >/dev/null 2>&1 || {
+    echo "severance: group '$WC_GROUP' missing (run 'severance seal')" >&2
+    return 1; }
+  _ensure_account
+  _ensure_mapping_and_linger
+  _ensure_traverse_acl
+  _ensure_socket_dir
+  _bring_up_docker
+}
 sev_runner() {
   _deps_ok || exit 1
   _any=0; _fail=0

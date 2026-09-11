@@ -26,9 +26,18 @@ sev_forget() {
   _r=$WC_RUNNER
   echo "severance: forgetting '$_profile' (runner '$_r')"
   sev_sudo_prime
+  _tear_down_runner "$_r"
 
-  # Tear down the runner. Remove the traverse ACL BEFORE userdel (while the name
-  # still resolves), then the --user services, then the account + id ranges.
+  [ "$_purge" = 1 ] || return 0
+  _purge_record "$_profile"
+}
+
+# Tear down the runner. Remove the traverse ACL BEFORE userdel (while the name
+# still resolves), then the --user services, then the account + id ranges.
+# Every step tolerates an already-absent piece: this is a decommission, so
+# half-torn-down must converge rather than abort partway.
+_tear_down_runner() {   # <runner>
+  _r=$1
   if id "$_r" >/dev/null 2>&1; then
     _ruid=$(id -u "$_r")
     setfacl -x "u:$_r" "$HOME" 2>/dev/null || true
@@ -46,11 +55,14 @@ sev_forget() {
   sudo rm -f "/etc/tmpfiles.d/$_r.conf"
   sudo rm -rf "/run/$_r"
   echo "  runner torn down (wall + record left intact)"
+}
 
-  [ "$_purge" = 1 ] || return 0
-
-  # --purge: remove the record (unless host-managed), clear the default, and
-  # regenerate the git fragment. The TREE stays sealed.
+# --purge: remove the record (unless host-managed), clear the default marker if
+# it named THIS profile, and regenerate the git fragment for the survivors. The
+# TREE stays sealed -- the data is yours, and reclaiming it is a deliberate act,
+# not a side effect of decommissioning a runner.
+_purge_record() {   # <profile>
+  _profile=$1
   if _sev_host_managed; then
     echo "  profiles dir is host-managed; remove the record at the host" >&2
   else
