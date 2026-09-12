@@ -1,2 +1,9 @@
 # Local dev context for an AI assistant: kept on disk, never in the public repo.
 CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# ...but the enclave TEMPLATE is shipped on purpose. It only survives the
+# rule above because git will not untrack retroactively; say so explicitly so a
+# remove-and-re-add cannot silently drop it from the package.
+!share/enclave/CLAUDE.md
