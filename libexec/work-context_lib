@@ -6,12 +6,12 @@
 # expands to $HOME/. wc_load returns non-zero (WC_* empty) when no profile
 # resolves, so a box with none degrades to personal-only cleanly.
 #
-# Resolution -- wc_load [name]:
+# Resolution, wc_load [name]:
 #   1. an explicit <name> argument        -> $WC_PROFILES_DIR/<name>
 #   2. a legacy WC_CONFIG file override    (transitional; some modules set it)
 #   3. $WORK_PROFILE                       -> $WC_PROFILES_DIR/$WORK_PROFILE
 #   4. the DEFAULT marker (a profile name in ~/.config/severance/default,
-#      written by `severance use`) -- the active enclave when several exist
+#      written by `severance use`), the active enclave when several exist
 #   5. the SOLE provisioned profile if exactly one exists; else fail loud
 #      (multiple -> return 4 "specify one"; none -> return 1, personal-only).
 #
@@ -27,7 +27,7 @@
 #
 # An enclave has ONE name: the profile name. It is the identity callers select
 # and `severance current` publishes, the group, and a path component. There is
-# deliberately no second, prettier name for display -- an enclave that wants a
+# deliberately no second, prettier name for display, so an enclave that wants a
 # different prompt sets PS1 in its own .workrc, which `work` sources last.
 # WC_CONFIG_ROOT is WORK_HOME/.config (= WC_DIR/.config); per-tool work dirs
 # derive as $WC_CONFIG_ROOT/<tool>, and WC_CLAUDE_CONFIG derives from it unless
@@ -160,7 +160,7 @@ wc_load() {   # [name]
 #
 # With no pid it speaks for THIS process through id(1). With a pid it must read
 # /proc instead: id(1) can only speak for the caller. Same two-tier question
-# either way -- Gid: is the primary, Groups: the supplementary set.
+# either way: Gid: is the primary, Groups: the supplementary set.
 wc_group_rank() {   # [pid]
   if [ -z "${1:-}" ]; then
     [ "$(id -gn)" = "$WC_GROUP" ] && return 0
@@ -187,7 +187,7 @@ wc_group_rank() {   # [pid]
 #
 # 2 is not a pedantic distinction. A mangled or stale pid that silently ranked
 # as "not in an enclave" would report a process that IS behind the boundary as
-# personal -- a false negative on a ZDR wall, which is the one direction this
+# personal, a false negative on a ZDR wall, which is the one direction this
 # must never fail in. Callers turn 2 into an error; only 1 means personal.
 #
 # It SCANS every provisioned profile rather than resolving one, because "which
@@ -231,7 +231,7 @@ wc_current() {   # [pid]
 # Which per-tool config dirs live behind the seal. DATA, not hooks: every case
 # is the same four fields (tool, env var, dir, seal?), so a table adds a tool in
 # one line where a plugin API would need discovery, an env contract, exit-code
-# classification and an introspection verb -- for four rows. It also makes a
+# classification and an introspection verb, for four rows. It also makes a
 # gap legible: gcloud has a sealed dir and no env var, which is invisible when
 # the same fact is spread across seal_lib and bin/work.
 #

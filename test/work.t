@@ -143,7 +143,7 @@ rc=0; work enter beta >/dev/null 2>&1 || rc=$?
 # --- work knows NOTHING about the box's shell framework ----------------------
 # A session's environment (PATH, toolchain managers, history) is the ENCLAVE's
 # business, set in its .workrc, which both paths source. work used to hardcode
-# ~/lib/load_helper_funcs and call env_load/sh_history_start by name -- one
+# ~/lib/load_helper_funcs and call env_load/sh_history_start by name, one
 # provisioner's private dotfile convention baked into the boundary, and not
 # even a public tool. It also made a standalone box's interactive session fail
 # outright, because the rc emitted that source line unconditionally.
@@ -157,7 +157,7 @@ for sym in load_helper_funcs env_load sh_history_start nvm tfenv; do
   }
 done
 
-# Both paths must still source the enclave's own rc -- that IS the seam that
+# Both paths must still source the enclave's own rc: that IS the seam that
 # replaced it, so losing it would strand every session with a bare environment.
 [ "$(grep -c '\.workrc' "$WORK")" -ge 2 ] ||
   fail "bin/work no longer sources .workrc in both paths"

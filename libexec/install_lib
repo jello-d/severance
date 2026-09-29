@@ -23,11 +23,11 @@ _sev_ln() { mkdir -p "$(dirname "$2")"; ln -sfn "$1" "$2"; echo "  link $2"; }
 # It used to write an include.path into the user's global git config and drop a
 # hook into a consumer's config dir. Nobody installing a work/personal boundary
 # expects it to edit their git config, and special-casing git -- of all things
-# -- is the tell that it was the wrong layer. Which boxes get which integration
+# is the tell that it was the wrong layer. Which boxes get which integration
 # is the integrator's call: a provisioner places these, or a human does.
 #
 # It also ships no adapter for anyone. A copy of severance's own verbs living
-# in this repo for a consumer's benefit could only go stale -- and did. The CLI
+# in this repo for a consumer's benefit could only go stale, and did. The CLI
 # is the contract; a one-line hook calling it belongs with whoever owns the
 # box, and checking that hook belongs to whoever declared the seam.
 _wiring_hint() {

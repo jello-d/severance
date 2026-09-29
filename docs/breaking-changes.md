@@ -2,9 +2,9 @@
 
 severance's command surface was reorganised around one rule:
 
-> **`severance` is the boundary** -- declare it, provision it, audit it, and
+> **`severance` is the boundary**: declare it, provision it, audit it, and
 > answer questions about it. Config, admin, and query.
-> **`work` is the one privileged action** -- acquire the group and hand a human
+> **`work` is the one privileged action**: acquire the group and hand a human
 > a session. It answers no questions.
 
 Every non-human consumer now talks to `severance` and only `severance`. That
@@ -17,7 +17,7 @@ spelling is live.
 
 > **If you are reading this because something broke: check
 > `severance doctor` first.** A shim still calling `severance context` leaves
-> valet-key's ZDR guard a NO-OP -- valet-key reads a failing hook's exit as
+> valet-key's ZDR guard a NO-OP: valet-key reads a failing hook's exit as
 > "warn, then proceed". severance now exits 1 (refuse) rather than 2 (proceed)
 > from the retired verb, so it fails closed, and `doctor` reports the stale
 > shim as a FAILURE instead of "present".
@@ -79,7 +79,7 @@ is `manifest`, which is already a valid label.
 ## 5. `label` is retired, and so is `WORK_CONTEXT`
 
 An enclave has exactly ONE name: the record's filename. `label` was a second,
-prettier alias for it, and every read was presentation -- the `work` prompt,
+prettier alias for it, and every read was presentation: the `work` prompt,
 the entry banner, two `seal` progress lines, and the `WORK_CONTEXT` export.
 
 Remove `label=` from every record. It is now an unknown key and records fail
@@ -87,7 +87,7 @@ loud, so **update records BEFORE deploying this severance**: the reverse order
 is a hard parse failure. (An old severance reading a record without `label`
 merely prints a duller prompt, so record-first is the safe direction.)
 
-`WORK_CONTEXT` was exported by `work` and read by NOTHING -- not in severance,
+`WORK_CONTEXT` was exported by `work` and read by NOTHING, not in severance,
 mux, valet-key, tackup, or any shell rc. It is deleted.
 
 The prompt now uses the profile name. An enclave that wants a different one
@@ -100,7 +100,7 @@ Identical wherever label equalled the profile name, which was everywhere.
 ## 6. `show --shell` is retired
 
 It was advertised as a stable contract for external consumers and had none.
-Every integrator reaches severance through `current` and `guard` -- one word
+Every integrator reaches severance through `current` and `guard`, one word
 and one exit code. A twelve-variable promise nobody used still pinned every
 internal name in the reader as public API.
 
@@ -114,7 +114,7 @@ the replacement rather than being silently reinterpreted as a profile name.
 The record's own comment already called them dormant ("the retired podman
 model used service_user / service_overlay ... unused now"), no profile
 anywhere set them, and both code paths were fully guarded on
-`[ -n "$WC_SERVICE_USER" ]` -- so they were inert. Removed along with
+`[ -n "$WC_SERVICE_USER" ]`, so they were inert. Removed along with
 `grant_overlay_acl` and `seal_service_overlay` (~43 lines) and the matching
 `check` audit. They are now unknown keys.
 
@@ -128,7 +128,7 @@ git -- of all things -- was the tell that it was the wrong layer.
 It also ships no adapter for anyone, and audits nobody's config. severance
 briefly shipped `share/hooks/` and had `doctor` grade a consumer's hook file;
 both are gone. A copy of severance's own verbs living here for a consumer's
-benefit could only go stale -- and did, leaving deployed copies calling a
+benefit could only go stale, and did, leaving deployed copies calling a
 retired verb with a guard silently a no-op. And only the tool that DECLARED a
 seam can tell a hook that answered from one that merely failed, because it is
 the tool that decided what a non-zero exit means there.
@@ -146,7 +146,7 @@ install` prints the command.
 `sh_history_start` by name: one provisioner's private dotfile convention baked
 into the boundary, and not even a public tool. It also broke the standalone
 case outright, because the interactive rc emitted that source line
-UNCONDITIONALLY while the `run` path guarded it -- an asymmetry that shows it
+UNCONDITIONALLY while the `run` path guarded it, an asymmetry that shows it
 was an oversight rather than a decision.
 
 A session's environment (PATH, toolchains, history) is the ENCLAVE's business
@@ -159,14 +159,15 @@ paths. **Move that content there**, or a work session loses it.
 drop-ins, on the `/etc/profile` + `/etc/profile.d` model. The hardcoded
 per-tool code in `seal.sh` and `bin/work` is gone.
 
-`valet-key` is no longer a severance default -- severance has no reason to know
+`valet-key` is no longer a severance default, because severance has no reason to
+know
 a credential-slot pooler exists. An integrator that wants it adds a drop-in:
 
     # tool       env                   dir              seal
     valet-key    VALET_KEY_POOL_ROOT   valet-key-pool   no
 
 Without that drop-in, `VALET_KEY_POOL_ROOT` is not set and valet-key falls back
-to its own default pool root -- outside the seal. Add it.
+to its own default pool root, outside the seal. Add it.
 
 ## 11. `work_group` and `claude_config` derive
 
@@ -183,7 +184,8 @@ Existing records that set them keep working; `severance validate` warns when
 and the same for every other file in `libexec/`. A filename says what the file
 is to its LOADER, not which language it is in: these are sourced fragments,
 never run, so they take a `_lib` classifier (`-` separates words in the name,
-`_` separates the name from the classifier). `setup.sh` is unchanged -- that
+`_` separates the name from the classifier). `setup.sh` is unchanged, because
+that
 name is a cross-repo contract every integrator invokes.
 
 Only ONE of these is a published path: **`work-context_lib`**, the reader an
@@ -213,7 +215,7 @@ has swept past this.
 
 The fleet migration these notes describe is **complete**; what follows is the
 resulting shape, not a to-do list. An earlier draft of this section prescribed
-an intermediate one -- a `context` file answering `resolve` and `guard` -- and
+an intermediate one (a `context` file answering `resolve` and `guard`) and
 kept prescribing it after nothing read that any more, which is exactly the
 failure mode the notes above are about.
 
@@ -235,12 +237,12 @@ hook file: empty output or a non-zero exit means its baseline, which is what
 
 **A credential router** that wants to select an account and refuse an
 incoherent launch calls both verbs. valet-key does that through two hook
-DIRECTORIES -- a selector and a veto, where a hook's directory is the verb --
+DIRECTORIES, a selector and a veto, where a hook's directory is the verb --
 so its integration is one line in each, and neither package names the other.
 Those files belong to whoever configures the box.
 
 **Anything else** is the same shape: call the verb, read the exit status.
 severance ships no adapter, hook or shim for any consumer, and audits none of
 their config. If a consumer's seam has a shape severance's CLI does not fit,
-the adapter for it lives with the consumer or the integrator -- never here,
+the adapter for it lives with the consumer or the integrator, never here,
 where it would be a copy of our own verbs going stale behind our back.

@@ -82,7 +82,7 @@ Health, and tearing one down:
 
 An enclave has exactly **one name**: the record's filename. It is the identity
 `severance current` publishes, it derives `work_group`, and it is a path
-component. There is no separate display name -- an enclave that wants a
+component. There is no separate display name, so an enclave that wants a
 different prompt sets `PS1` in its own `<work_dir>/.workrc`, which `work`
 sources last. A display preference belongs with the enclave, not in the
 boundary's record.
@@ -119,7 +119,7 @@ Every case is the same four fields, so adding a tool is a line rather than a
 plugin API with discovery, an env contract and exit-code classification. A
 table also makes gaps legible: `gcloud` shipped with a sealed dir and no
 variable, invisible while the same fact lived in two files. The variable is a
-**base** -- a launcher that selects per-profile overrides it at exec, and the
+**base**: a launcher that selects per-profile overrides it at exec, and the
 base is what a *bare* invocation in a work session gets, so it is what keeps a
 direct call from falling back to the personal dir. `-` means route nothing.
 
@@ -147,20 +147,20 @@ rather than two.
 Stable contracts consumed by other tools. Their output shape and exit codes do
 not change silently: a change to either is a **breaking** change, recorded in
 `docs/breaking-changes.md`, and the retired spelling fails loud rather than
-being quietly aliased -- `severance context` still exits non-zero naming its
+being quietly aliased: `severance context` still exits non-zero naming its
 replacement. Everything else in this README is a human report or a mutation,
 free to change its wording.
 
 There is deliberately no version string to check. A consumer that needs to know
-whether this severance supports a verb should RUN it -- `severance current`
-either answers or does not -- which is what `doctor` does, and what a version
+whether this severance supports a verb should RUN it: `severance current`
+either answers or does not, which is what `doctor` does, and what a version
 number could only claim.
 
-- `severance current [PID]` -- the profile name on stdout, or nothing.
+- `severance current [PID]`: the profile name on stdout, or nothing.
   Exit **0** answered (empty output means "not in an enclave", which is not an
   error); **2** could not answer (the pid is malformed or names no live
   process).
-- `severance guard` -- exit 0 ok, 1 refuse; the message goes to stderr.
+- `severance guard`: exit 0 ok, 1 refuse; the message goes to stderr.
 
 There is deliberately nothing else. `show --shell` (an eval-able dump of every
 `WC_*`) was advertised here as a third stable contract and had no consumers at
@@ -190,9 +190,9 @@ direction this must never fail in, so an unanswerable question exits 2.
   interface: a consumer with a hook directory drops in a one-line executable
   that calls `severance current` or `severance guard`, and that file lives on
   the integrator's side because it describes THEIR box. severance does not
-  place it and does not audit it -- reading and grading another tool's config
-  is the same shape as writing it, and only that tool can tell an answer from
-  a failure on its own seam. It checks its own end and stops there.
+  place it and does not audit it, because reading and grading another tool's
+  config is the same shape as writing it, and only that tool can tell an
+  answer from a failure on its own seam. It checks its own end and stops there.
 
 ## Layout
 
@@ -220,8 +220,8 @@ per clone:
     git config core.hooksPath .githooks
 
 `test/run` runs everything and needs no privileges. Each test must ANNOUNCE
-itself with an `ok` or `FAIL` line; one that exits without a verdict -- a
-syntax error, a missing command -- is reported by name as `ABORT`, because
+itself with an `ok` or `FAIL` line; one that exits without a verdict (a
+syntax error, a missing command) is reported by name as `ABORT`, because
 "aborted before it could assert anything" and "passed" must not look alike.
 
 One test is gated on real root AND an explicit opt-in, because it creates a
@@ -230,16 +230,16 @@ group and drops to another account:
     sudo env SEVERANCE_TEST_PRIVILEGED=1 sh test/wall-privileged.t
 
 `env`, not `sudo -E`: many sudoers refuse -E, and the failure is silent in the
-worst way -- the opt-in is stripped, the test skips, and it still prints `ok`.
+worst way: the opt-in is stripped, the test skips, and it still prints `ok`.
 It proves the claim nothing else can reach: a non-member cannot traverse, list,
 or read inside a sealed tree; a member can; and a file born inside inherits the
 wall.
 
-`test/seal-real.t` provisions a REAL wall -- actual chown/chmod/setfacl,
-audited by the real `stat` and `getfacl` with nothing stubbed -- inside a
+`test/seal-real.t` provisions a REAL wall: actual chown/chmod/setfacl,
+audited by the real `stat` and `getfacl` with nothing stubbed, inside a
 `bubblewrap` user namespace, and SKIPS itself where bubblewrap or user
 namespaces are unavailable. It cannot prove the one thing that needs a second
-identity -- that a non-member is DENIED -- which is why `wall-privileged.t`
+identity (that a non-member is DENIED), which is why `wall-privileged.t`
 above exists. Only a single id is mapped, root inside bypasses the permission
 bits the wall is made of, and mapping a range needs `newuidmap` through a user
 namespace many systems deny unprivileged processes.
@@ -249,6 +249,6 @@ parts are pulled out and driven directly rather than left uncovered: the
 runner's derived paths, the tmpfiles line that decides who can traverse to the
 docker socket, and the relay unit's `group=` substitution are all plain text
 computed before any `sudo`, and `test/runner-unit.t` checks them. The runner's
-apply itself -- it creates a system account, subordinate id ranges, linger and
-`--user` units -- is the one thing with no coverage, because running it would
+apply itself (it creates a system account, subordinate id ranges, linger and
+`--user` units) is the one thing with no coverage, because running it would
 mutate the machine under test.

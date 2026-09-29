@@ -1,14 +1,14 @@
 #!/bin/sh
 # test/wall-privileged.t - the wall actually DENIES a non-member.
 #
-# This is severance's central claim -- "the wall is the kernel" -- and it is
+# This is severance's central claim ("the wall is the kernel") and it is
 # the one thing no other test can reach. Proving it needs TWO identities and a
 # real group, and every rootless route is closed:
 #
 #   bubblewrap  maps ONE id, so the enclave group must be gid 0 and the
 #               namespace root bypasses the very bits the wall is made of.
 #   unshare +   maps a full 65535-id range (newuidmap is setuid), and grants
-#   newuidmap   full caps in the namespace -- but host mounts are not OWNED by
+#   newuidmap   full caps in the namespace, but host mounts are not OWNED by
 #               that namespace, so chown to a mapped id still fails EPERM, and
 #               getting an owned filesystem needs `unshare -m`, which is EPERM
 #               even with CAP_SYS_ADMIN wherever the kernel restricts what an
@@ -24,7 +24,7 @@
 #
 # `env` and not `sudo -E`: many sudoers configurations refuse -E outright
 # ("preserving the entire environment is not supported, '-E' is ignored"), and
-# the failure is SILENT in the worst way -- the opt-in is stripped, the test
+# the failure is SILENT in the worst way: the opt-in is stripped, the test
 # skips, and it still prints ok. Setting the variable as part of the command
 # survives whatever the sudo policy is.
 #
@@ -36,7 +36,7 @@ harness_init wall-privileged
 
 [ "${SEVERANCE_TEST_PRIVILEGED:-}" = 1 ] || {
   # Name the working invocation, because the most likely reason to land here
-  # is not "you forgot" -- it is that sudo dropped the variable.
+  # is not "you forgot": it is that sudo dropped the variable.
   echo "ok   $TEST_NAME (skipped: opt in with"
   echo "     sudo env SEVERANCE_TEST_PRIVILEGED=1 sh test/$TEST_NAME.t )"
   exit 0; }
@@ -103,7 +103,7 @@ fi
 
 # --- ...and a MEMBER can ------------------------------------------------------
 # The other half: a wall that denied everyone would pass every assertion above
-# and be useless. Same account, same uid -- the ONLY difference is the group.
+# and be useless. Same account, same uid, and the ONLY difference is the group.
 GID=$(getent group "$GRP" | cut -d: -f3)
 setpriv --reuid="$NOBODY" --regid="$NOBODY_GID" --groups="$GID" \
   sh -c "cd '$T/wt'" 2>/dev/null ||

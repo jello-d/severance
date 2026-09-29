@@ -8,8 +8,8 @@
 # be a subdirectory, never the whole home or root).
 # A profile name is the enclave's PUBLISHED IDENTITY: it is the group name, a
 # path component, and the token `severance current` hands to consumers that use
-# it as a socket name or namespace. So it is linted as a DNS label -- lowercase
-# alphanumeric and hyphen, no leading or trailing hyphen, 63 max -- which is the
+# it as a socket name or namespace. So it is linted as a DNS label: lowercase
+# alphanumeric and hyphen, no leading or trailing hyphen, 63 max, which is the
 # intersection every one of those uses can accept. Underscore is deliberately
 # NOT allowed: it is legal in a Unix group and illegal in a DNS label, so
 # allowing it here would let a record provision cleanly and then be rejected

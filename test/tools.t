@@ -3,7 +3,7 @@
 # seal, and which environment variable points each tool at its own.
 #
 # DATA, not hooks. Every case is the same four fields, so adding a tool is a
-# line -- and ownership follows /etc/profile + /etc/profile.d: severance ships
+# line, and ownership follows /etc/profile + /etc/profile.d: severance ships
 # and owns share/tools, an integrator adds its own tools in its OWN drop-in, so
 # severance can rewrite its defaults without clobbering anyone and nobody edits
 # a file they do not own.
@@ -37,7 +37,7 @@ done
 # gcloud is sealed AND routed. It was shipped with no variable, which the
 # table made visible: valet-key selects CLOUDSDK_CONFIG per profile through its
 # own adapter, so the routing worked, but a BARE /usr/bin/gcloud inside a work
-# session -- bypassing that shim, as gcloud-migrate deliberately does -- had no
+# session (bypassing that shim, as gcloud-migrate deliberately does) had no
 # base and fell back to the personal dir. The base closes that and agrees with
 # what valet-key selects.
 [ "$(field gcloud 2)" = CLOUDSDK_CONFIG ] || fail "gcloud should set a base"
@@ -83,7 +83,7 @@ out=$(env SEVERANCE_SHARE="$T/nope" WC_TOOLS_DIR="$D" \
 
 # --- a missing SEVERANCE_SHARE is LOUD, not silently default-less ----------
 # Composing "$SEVERANCE_SHARE/tools" from an unset variable yields "/tools",
-# which reads fine and silently drops every shipped default -- a caller would
+# which reads fine and silently drops every shipped default, and a caller would
 # get drop-ins only, with no sign the defaults had vanished.
 printf 'only-a-dropin ONLY_ENV onlydir no\n' > "$D/70-only"
 err=$(env -u SEVERANCE_SHARE WC_TOOLS_DIR="$D" \
@@ -100,7 +100,7 @@ out=$(env -u SEVERANCE_SHARE WC_TOOLS_DIR="$D" \
 rm -f "$D"/*
 
 # --- the seal selection: seal=yes AND the tool installed -------------------
-# "the right thing if the crumbs are there, otherwise skip" -- an absent tool
+# "the right thing if the crumbs are there, otherwise skip": an absent tool
 # must not have a dir provisioned for it.
 #
 # Driven with SYNTHETIC tool names, so the result cannot depend on which real

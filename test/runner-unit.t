@@ -24,7 +24,7 @@ RUNNER_LIB=$HERE/libexec/runner_lib
 #
 # The obvious `sed '/^name() {/,/^}/p'` is wrong here and quietly so: several of
 # these are ONE-LINERS, whose closing brace is not on a line of its own, so the
-# range runs on and swallows the NEXT function -- printing it twice, producing
+# range runs on and swallows the NEXT function, printing it twice, producing
 # malformed shell, and leaving a test that "passed" while driving something
 # that was never the code. Depth-counting handles both shapes.
 fn() {   # <name>
@@ -72,7 +72,7 @@ out=$(drive 'WC_RUNNER=from-record; WORK_RUNNER_USER=override
 # --- _render_tmpfiles: who can reach the socket ------------------------------
 # 0710 is the whole point: a group member TRAVERSES in to the socket, everyone
 # else is denied at the directory. 0750 would let the group list it, 0711 would
-# let anyone through -- and neither would look wrong at a glance.
+# let anyone through, and neither would look wrong at a glance.
 out=$(drive 'WC_RUNNER=demo-runner; WC_GROUP=wg; TMPFILES_DIR=/etc/tmpfiles.d' \
   '_runner_vars; _render_tmpfiles')
 [ "$out" = "d /run/demo-runner 0710 demo-runner wg -" ] ||
@@ -91,8 +91,9 @@ esac
 # --- _render_relay_unit: who can reach the DOCKER SOCKET ---------------------
 # The relay unit is what fronts the runner's private rootless-docker socket
 # with a host-visible one, and @GROUP@ becomes `group=` on the listening
-# socket. A wrong value there opens the daemon to the whole box -- root inside
-# a container is root on the bind mounts -- so this substitution is as
+# socket. A wrong value there opens the daemon to the whole box, because root
+# inside
+# a container is root on the bind mounts, so this substitution is as
 # load-bearing as the wall itself, and it is pure text.
 cat > "$T/relay.in" <<'EOF'
 ExecStart=/usr/bin/socat -t 86400 \
@@ -155,7 +156,7 @@ drive 'RUNNER=demo' "_has_subids $T/su" &&
   fail "_has_subids matched a PREFIX of another account"
 
 # --- _has_traverse: the ACL that lets the runner reach into $HOME -----------
-# Real setfacl on a real directory -- no privilege needed for a dir we own,
+# Real setfacl on a real directory, with no privilege needed for a dir we own,
 # and no stub, so this is the actual predicate against the actual tool.
 if command -v setfacl >/dev/null 2>&1 &&
    command -v getfacl >/dev/null 2>&1; then

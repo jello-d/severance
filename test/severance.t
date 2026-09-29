@@ -114,7 +114,7 @@ WC_PROFILES_DIR="$R/self/profiles" HOME="$T/home" sh -c ". '$WCLIB'
 $rgg
 render_git_gen" > "$T/gitgen"
 
-# Stubs the seal + membership verdicts read -- KNOB-DRIVEN so each wall drift
+# Stubs the seal + membership verdicts read, KNOB-DRIVEN so each wall drift
 # below can be driven red. Default state is a correct seal + transient member.
 cat > "$T/bin/getent" <<EOF
 #!/bin/sh
@@ -275,7 +275,7 @@ gget() {   # <home> -> the global include.path values
 }
 
 # fresh install into an empty HOME: LINKS ONLY. `severance install` configures
-# no other tool -- nobody installing a work/personal boundary expects it to
+# no other tool: nobody installing a work/personal boundary expects it to
 # edit their git config, and which boxes get which integration is the
 # integrator's call. severance publishes the artifacts and audits the result;
 # placing them is somebody else's job.
@@ -524,7 +524,7 @@ done
 # ...and the README's worked example must contain only real keys. Extracted by
 # SECTION rather than by matching the heading's literal text, which is fragile
 # to a stray backtick and silently matched nothing in the first version of
-# this check -- a test that examines an empty list passes by vacuum.
+# this check, because a test that examines an empty list passes by vacuum.
 exkeys=$(awk '/^## Profile record/{f=1;next} f&&/^## /{f=0}
               f&&/^    [a-z_]+=/{sub(/=.*/,"");sub(/^ */,"");print}' \
          "$SEVROOT/README.md")
@@ -537,7 +537,7 @@ done
 # --- doctor's OWN sections (it had never been run in a test) -----------------
 # doctor is the "is my boundary intact end to end" report, and the whole-wall
 # audit it delegates to is covered above. What was not covered is doctor's own
-# four checks -- and one of them, the default marker, is the dangling-pointer
+# four checks, and one of them, the default marker, is the dangling-pointer
 # case that `forget --purge` and `use` also guard. Three verbs can leave it,
 # so the report that would tell you had better catch it.
 DD=$T/dd; mkdir -p "$DD"
@@ -596,7 +596,7 @@ done
 # It is a migration record, so it ages differently from the man page: its
 # claims were true when written and quietly stopped being so. It carried an
 # exit code the code no longer returns, and pointed at a share/hooks/ that had
-# been deleted -- while ALSO stating the corrected exit two paragraphs earlier,
+# been deleted, while ALSO stating the corrected exit two paragraphs earlier,
 # so it contradicted itself.
 BC=$SEVROOT/docs/breaking-changes.md
 [ -r "$BC" ] || fail "docs/breaking-changes.md missing"
@@ -619,7 +619,7 @@ done
 
 # --- no doc may promise something that does not exist -----------------------
 # The machine-interface promise read "will not change without a major version
-# bump" -- against a package with no version, no --version, and no way to bump
+# bump", against a package with no version, no --version, and no way to bump
 # one. A stability guarantee nobody can check is not a guarantee; it is a
 # sentence. Either carry a version or promise something true.
 _has_ver=0
@@ -637,7 +637,7 @@ fi
 # --help is already held to the code below; the man page is the other thing an
 # integrator reads, and it drifted the same way: it listed `context` under
 # COMMANDS as "the discovery seam" long after that verb was retired, and
-# quoted the wrong exit code for it. Retirement notes are fine -- presenting
+# quoted the wrong exit code for it. Retirement notes are fine; presenting
 # one as a live command is not.
 MAN=$SEVROOT/man/man1/severance.1
 [ -r "$MAN" ] || fail "man page missing"
@@ -656,7 +656,7 @@ grep -q "exits $_rc" "$MAN" ||
 # described: it advertised `show --shell` after that was retired, claimed
 # `current` "always exits 0" after it grew an error case, and said install
 # wires host hooks after it stopped. Docs drifting from behaviour is not
-# cosmetic here -- usage IS the contract an integrator reads.
+# cosmetic here: usage IS the contract an integrator reads.
 help_out=$(env -i PATH="/usr/bin:/bin" HOME="$T" "$SEV" --help 2>&1 || true)
 
 # Nothing retired may be advertised.

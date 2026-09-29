@@ -107,7 +107,8 @@ fi
 # environment, so forward the live SESSION RESOURCES nothing downstream can
 # reconstruct: SSH_AUTH_SOCK, and the Wayland/X display + runtime dir so an app
 # in here can still reach the system clipboard to PASTE (copy out is an OSC 52
-# escape and needs none of this). Same uid, so this crosses no boundary -- the
+# escape and needs none of this). Same uid, so this crosses no boundary, because
+# the
 # wall is the group ACL on work_dir, untouched. Anything else the session wants
 # is the enclave's .workrc to set. WORK_REEXEC guards a loop with no sudoers.
 #
@@ -136,7 +137,8 @@ fi
 # WORK_REEXEC was EXPORTED into this process; unset it so it does NOT leak to
 # children. Otherwise a nested `work run ...` from inside the session sees
 # WORK_REEXEC=1 and takes the "profile already resolved" branch, pinning the
-# nested call to the OUTER enclave. WORK_PROFILE is KEPT -- it is real session
+# nested call to the OUTER enclave. WORK_PROFILE is KEPT, because it is real
+# session
 # state (wc_load reads it as the current enclave for a bare `work`); only the
 # re-exec flag must not survive.
 unset WORK_REEXEC
@@ -150,7 +152,8 @@ _tools_env=$(mktemp "${TMPDIR:-/tmp}/work-tools.XXXXXX")
 
 # WORK_HOME: the sealed enclave root (= work_dir). Point every work-scoped tool
 # at its dir UNDER it, so all work credential stores live behind the ONE gate
-# (docs/work-home.md). These are EXPLICIT, per-tool overrides ONLY -- we do NOT
+# (docs/work-home.md). These are EXPLICIT, per-tool overrides ONLY, and we do
+# NOT
 # set HOME or XDG_CONFIG_HOME (never hijack an implicitly-resolved var; that
 # would silently over-capture personal config).
 export WORK_HOME="$WC_DIR"
@@ -174,10 +177,10 @@ rm -f "$_tools_env"
 export CLAUDE_CONFIG_DIR="$WC_CLAUDE_CONFIG"
 
 # Point docker at THIS enclave's rootless-docker runner socket (the runner:
-# /run/<runner>/docker.sock, group <group> 0660 -- a work session reaches it by
+# /run/<runner>/docker.sock, group <group> 0660, so a work session reaches it by
 # group, a personal process gets EACCES). Without this, `docker` in a work
 # session falls to the default socket (the masked system daemon) and fails
-# "permission denied" -- which is what breaks testcontainers/e2e. Set for BOTH
+# "permission denied", which is what breaks testcontainers/e2e. Set for BOTH
 # the command and interactive forms below; harmless if the runner is not up yet
 # (docker then fails "cannot connect", which the runner check flags).
 [ -n "$WC_RUNNER" ] && export DOCKER_HOST="unix:///run/$WC_RUNNER/docker.sock"
@@ -195,7 +198,7 @@ if [ "$mode" = run ]; then
   # environment (PATH, toolchain managers, history) is the ENCLAVE's business
   # and lives in its .workrc, sourced below in BOTH this path and the
   # interactive one. work used to source ~/lib/load_helper_funcs and call
-  # env_load/sh_history_start by name -- a specific provisioner's private
+  # env_load/sh_history_start by name, because a specific provisioner's private
   # dotfile convention, hardcoded into the boundary, and not even a public
   # tool. It also made a standalone box's interactive session fail outright,
   # since the rc wrote that source line unconditionally.
@@ -219,7 +222,8 @@ trap 'rm -f "$rc"' EXIT INT TERM
 {
   # The enclave's own NAME, not a separate display string: one name for the
   # boundary everywhere. An enclave wanting a different prompt re-sets PS1 in
-  # its .workrc, sourced LAST below -- a display preference belongs with the
+  # its .workrc, sourced LAST below, because a display preference belongs with
+  # the
   # enclave, not in the boundary's record.
   printf "PS1='[%s]\$ '\n" "$WC_PROFILE"
   # $ENV was only the bootstrap path to this rc; unset it so it does not leak

@@ -4,7 +4,7 @@
 #
 # Reads the severance profiles and makes each enclave's boundary real:
 #   - the profile group exists (and the login user is NOT a permanent member)
-#   - the work_dir GATE is sealed root:<group> 2770 + default ACL -- that one
+#   - the work_dir GATE is sealed root:<group> 2770 + default ACL, and that one
 #     directory is the whole wall; the children are left to the dev to own
 #   - the enclave CLAUDE.md (SEVERANCE_ENCLAVE_MD) is placed in work_dir so
 #     agents/humans there work with the ownership model, not against it
@@ -24,7 +24,7 @@ SCAN_ROOT=${SCAN_ROOT:-$HOME/src}
 # work_dir-gate seal instead of N scattered ~/.config/*-<group> dirs
 # (docs/work-home.md). WHICH tools, and which of them are explicitly sealed
 # belt-and-braces, is the TABLE (share/tools + tools.d drop-ins), not a list
-# hardcoded here -- adding a tool is a line of data.
+# hardcoded here, so adding a tool is a line of data.
 
 # The login user must NOT be a permanent group member (the transient invariant).
 _permanent_member() {
@@ -46,7 +46,7 @@ render_git_gen() {
     # carveout/ (the exempt personal-project group) sits two levels deep, which
     # the one-level %s/* glob above does not reach; cover it explicitly. Belt-
     # and-braces: these repos are login-user-owned, so dubious-ownership never
-    # actually fires -- this just keeps it robust if that ever changes.
+    # actually fires; this just keeps it robust if that ever changes.
     printf '\tdirectory = %s/carveout/*\n' "$wd"
     printf '[includeIf "gitdir:%s/"]\n' "$wd"
     printf '\tpath = ~/.config/git/%s.inc\n' "$WC_GROUP"
@@ -119,8 +119,8 @@ seal_tool_dirs() {
 }
 
 # The sealed per-enclave CONFIG ROOT: WORK_HOME/.config (WORK_HOME = work_dir).
-# Per-tool work state -- agent configs, a credential pool, the corp
-# creds -- migrates under here so ONE seal (the work_dir gate) protects every
+# Per-tool work state (agent configs, a credential pool, the corp
+# creds) migrates under here so ONE seal (the work_dir gate) protects every
 # credential store, not N scattered dirs. Sealed explicitly (belt-and-braces);
 # the gate's traversal denial is what actually keeps a same-uid personal process
 # out, so inner state stays safe whatever its owner. See docs/work-home.md.
@@ -183,7 +183,7 @@ sev_seal() {
   echo "severance: git fragment $GIT_GEN"
 
   # NO passwordless `work` grant. A blanket NOPASSWD on `work` let ANY login
-  # process silently acquire the group -- turning the kernel wall into a rule
+  # process silently acquire the group, turning the kernel wall into a rule
   # the model is trusted to honor. `work` now authorizes through the user's
   # sudo (a prompt an agent cannot supply). Remove any legacy grant.
   if sudo -n test -e "$SUDOERS" 2>/dev/null || [ -e "$SUDOERS" ]; then
@@ -225,7 +225,7 @@ _check_sealed_dir() {
 # questions in one body, where a reader had to hold all of them at once to see
 # that any one of them was right.
 
-# The group exists, and the login user is NOT a permanent member -- membership
+# The group exists, and the login user is NOT a permanent member, and membership
 # must be transient, acquired per session by `work` and gone when it exits.
 _check_group() {
   if getent group "$WC_GROUP" >/dev/null 2>&1; then

@@ -58,7 +58,7 @@ esac
 rm -f "$PG/named-enclave"
 
 # The same, with NO profile at all whose group we hold. This is the real ZDR
-# scenario -- a personal user standing in a work tree -- and it is the state
+# scenario (a personal user standing in a work tree) and it is the state
 # that broke: an implementation resolving "which enclave do I hold the group
 # for" gets *none*, clears its state, and finds nothing left to compare the
 # path against, so it returns 0 and the refuse never fires.

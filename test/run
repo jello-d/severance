@@ -3,8 +3,8 @@
 # any test fails. POSIX sh, no dependency beyond a shell and the repo checkout.
 #
 # Each test must ANNOUNCE ITSELF: a line `ok <name>` or `FAIL <name>`. A test
-# that exits without one has ABORTED -- a syntax error, a missing command, an
-# unset variable under set -u -- and the runner says so, by name.
+# that exits without one has ABORTED: a syntax error, a missing command, an
+# unset variable under set -u, and the runner says so, by name.
 #
 # That matters because the alternative is what this used to do: the shell's own
 # error scrolled past mid-run with no test name attached, no verdict line, and

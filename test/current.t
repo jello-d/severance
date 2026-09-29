@@ -243,7 +243,7 @@ rc=0; XDG_CONFIG_HOME="$T/cfg" sev init my_work >/dev/null 2>&1 || rc=$?
 # --- severance ships NO adapter for any consumer -----------------------------
 # It used to ship one, because a consumer's seam spoke different verbs. A copy
 # of our own verbs living here for someone else's benefit could only go stale,
-# and did -- a rename left every deployed copy calling a verb that no longer
+# and did: a rename left every deployed copy calling a verb that no longer
 # existed, silently. The CLI is the contract; a one-line hook calling it
 # belongs with whoever owns the box.
 [ -e "$HERE/share/hooks" ] && fail "severance is shipping an adapter again"

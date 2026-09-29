@@ -1,4 +1,4 @@
-# severance tools table -- which per-tool config dirs live behind the seal.
+# severance tools table: which per-tool config dirs live behind the seal.
 #
 # THE DEFAULTS severance ships, and the only file severance owns. Additions
 # belong in drop-ins (~/.config/severance/tools.d/*), on the /etc/profile and
@@ -21,7 +21,7 @@
 #          credentials sit behind the SAME kernel wall as the tree; no = the
 #          enclave config root's own seal already covers it
 #
-# A row whose tool is absent is skipped for sealing -- the right thing happens
+# A row whose tool is absent is skipped for sealing, so the right thing happens
 # if the crumbs are there, and nothing happens if they are not.
 #
 # tool     env                  dir      seal

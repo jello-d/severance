@@ -28,7 +28,8 @@ sev_list() {
 # `--shell` (an eval-able dump of every WC_*) is RETIRED. It was advertised as
 # a stable contract for external consumers and had none: every one of them
 # reach severance through `current` and `guard`, which are one word and one
-# exit code. A twelve-variable promise nobody made use of is not free -- it
+# exit code. A twelve-variable promise nobody made use of is not free, because
+# it
 # pins every internal name in the reader as public API, and calling it stable
 # is a commitment. Exported internals are not an interface.
 sev_show() {

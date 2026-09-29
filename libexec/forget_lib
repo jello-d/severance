@@ -1,6 +1,6 @@
 # forget_lib - decommission a profile. Sourced by bin/severance.
 #
-# Default: tear down the RUNNER (reversible -- re-run `severance runner` to
+# Default: tear down the RUNNER (reversible: re-run `severance runner` to
 # recreate it): stop its --user docker + relay, drop linger, delete the service
 # account + its subid/subgid ranges, remove the tmpfiles + /run socket dir + the
 # traverse ACL. The WALL and the profile RECORD are left intact.
@@ -59,7 +59,7 @@ _tear_down_runner() {   # <runner>
 
 # --purge: remove the record (unless host-managed), clear the default marker if
 # it named THIS profile, and regenerate the git fragment for the survivors. The
-# TREE stays sealed -- the data is yours, and reclaiming it is a deliberate act,
+# TREE stays sealed: the data is yours, and reclaiming it is a deliberate act,
 # not a side effect of decommissioning a runner.
 _purge_record() {   # <profile>
   _profile=$1

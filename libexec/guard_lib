@@ -23,7 +23,7 @@
 #
 #   1. WHICH enclave's tree am I standing in?  A PATH question. It has an
 #      answer whether or not I hold any group, so it cannot be asked through
-#      wc_current -- that reports the enclave whose group I HOLD, and clears
+#      wc_current, which reports the enclave whose group I HOLD, and clears
 #      the WC_* when I hold none, which left this with nothing to compare.
 #   2. Do I hold THAT enclave's group?  A membership question, asked second,
 #      about the profile question 1 selected.
@@ -48,10 +48,10 @@ sev_guard() {   # [profile] -- advisory, ignored
     # Match against BOTH spellings of work_dir, because each alone has a
     # false-negative and this must not have one:
     #
-    #   the CONFIGURED path      -- needed when the tree cannot be traversed to
+    #   the CONFIGURED path,      needed when the tree cannot be traversed to
     #                               canonicalise it, which is precisely the
     #                               sealed state being guarded.
-    #   the CANONICAL path       -- needed when work_dir contains a symlink and
+    #   the CANONICAL path,       needed when work_dir contains a symlink and
     #                               the cwd resolved to the real path, so the
     #                               configured spelling never matches it.
     _wd=$( ( cd "$WC_DIR" 2>/dev/null && pwd -P ) || true )

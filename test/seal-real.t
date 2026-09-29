@@ -3,7 +3,7 @@
 #
 # WHY this exists. test/severance.t covers the seal audit by stubbing `getent`,
 # `stat` and `getfacl`, so it proves the check's LOGIC given a set of verdicts
-# -- not that severance produces those verdicts, and not that the audit reads a
+# not that severance produces those verdicts, and not that the audit reads a
 # real wall correctly. The privileged apply was only ever proven by logging its
 # sudo calls under SEVERANCE_DRYRUN. Between the two, nothing exercised the
 # actual chown/chmod/setfacl against a filesystem.
@@ -124,7 +124,8 @@ done
 # the explicit setfacl from the identity-dir seal changes nothing here, because
 # these dirs are created UNDER the already-sealed gate and INHERIT its default
 # ACL. The explicit call is the "belt-and-braces" the code claims, and it is
-# genuinely redundant on this path -- it earns its keep only for a dir that
+# genuinely redundant on this path, because it earns its keep only for a dir
+# that
 # predates the gate's seal.
 [ "$(echo "$out" | grep -c '^/home/wt/.config.* 1$')" = 2 ] ||
   fail "a sealed dir is missing its default other::--- ACL: $out"
@@ -143,7 +144,7 @@ done
 # The stubbed version of this proves the check reacts to a verdict it was
 # handed. This proves it reacts to the filesystem.
 drift() {   # <mutation> <expected FAIL fragment>
-  # `|| true`: check exits non-zero BY DESIGN here -- that is the case under
+  # `|| true`: check exits non-zero BY DESIGN here: that is the case under
   # test -- and must not trip this script's own set -e.
   out=$(inns "set -eu
 mkdir -p /home/wt

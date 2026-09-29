@@ -9,8 +9,9 @@
 # half-close timeout (-t 0.5s) then tears the whole relay down 0.5s later,
 # cutting off the command's stdout and RETURNING EARLY while the command runs on
 # in the container (looks like exec is fire-and-forget). A large -t makes socat
-# instead wait for the SERVER side to EOF -- the command actually exiting -- so
-# exec blocks and streams correctly. A normal exec still returns the instant the
+# instead wait for the SERVER side to EOF, which is the command actually
+# exiting, so exec blocks and streams correctly. A normal exec still returns the
+# instant the
 # command exits (the reverse EOF short-circuits the timeout), so the big value
 # only bounds a genuinely stuck half-closed connection. (`-it` escaped the bug
 # only because a TTY keeps stdin open, so no half-close ever fired.)

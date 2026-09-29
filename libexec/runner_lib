@@ -3,7 +3,7 @@
 # common_lib. Each runner is a locked service account whose LOGIN gid is that
 # profile's group, running rootless docker fronted by a socat relay on a
 # host-visible group-<group> socket. The account name is the profile's `runner`
-# (default <label>-runner) -- so `manifest` -> `manifest-runner`.
+# (default <label>-runner), so `manifest` -> `manifest-runner`.
 #
 # newuidmap (uidmap 4.17.4) refuses a userns whose gid != the caller's
 # /etc/passwd gid, and the login user's gid must stay personal (transient-group
@@ -30,7 +30,7 @@ _runner_vars() {
 # The socket-dir tmpfiles line: 0710 so a group member can TRAVERSE in to the
 # socket while everyone else is denied at the directory, owned runner:<group>
 # so the daemon writes it and the group reads it. Its own function because it
-# is pure -- derived entirely from _runner_vars and WC_GROUP -- and the apply
+# is pure (derived entirely from _runner_vars and WC_GROUP) and the apply
 # path around it needs root, so this is the part a test can pin down without
 # any privilege at all.
 _render_tmpfiles() {
@@ -109,7 +109,7 @@ _install_rootless_docker() {
   echo "severance: $RUNNER installed rootless docker --user service"
 }
 
-# The relay unit, templated. PURE -- a filter over RELAY_SRC -- so the part
+# The relay unit, templated. PURE (a filter over RELAY_SRC) so the part
 # that decides who can reach the docker socket is testable without a runner,
 # a daemon or root. @GROUP@ is the load-bearing substitution: it becomes
 # `group=` on the listening socket, and a wrong value there opens the daemon
