@@ -199,11 +199,13 @@ the same:
       [ -r "$f" ] && { . "$f"; break; }
     done
 
-The window matters because the two halves do not land on a box together.
-tackup, for one, relinks its shim in the Link verb but only pulls severance in
-Install, and reads work context before either -- so for exactly one sweep its
-deployed shim and the installed reader are a release apart. Drop the fallback
-once every box has swept past this.
+The window matters because a consumer's checkout and this package's installed
+copy move INDEPENDENTLY. tackup, for one, deploys its shim through a whole-dir
+symlink into its own checkout, so the shim changes the instant that repo does,
+while severance arrives through a pinned clone that only moves when a sweep
+pulls it. A consumer one commit ahead of the installed reader is therefore the
+normal state between sweeps, not a rare race. Drop the fallback once every box
+has swept past this.
 
 ---
 
