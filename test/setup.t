@@ -4,7 +4,7 @@
 # installer itself in depth (host-hook guards, idempotence, git include); this
 # only proves the thin wrapper reaches it. `check` is not exercised here -- it
 # audits a provisioned work boundary, not a bare sandbox.
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init setup        # sets HERE (repo root) + T (scratch) + fail/pass
 
 # Isolated HOME; git on PATH (install wires a git include into it).

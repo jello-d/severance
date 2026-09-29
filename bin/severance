@@ -25,9 +25,9 @@ LIBEXEC=$_bindir/../libexec
 SEVERANCE_SHARE=${SEVERANCE_SHARE:-$_bindir/../share}
 export SEVERANCE_SHARE
 
-[ -r "$LIBEXEC/common.sh" ] ||
+[ -r "$LIBEXEC/common_lib" ] ||
   { echo "severance: libexec not found at $LIBEXEC" >&2; exit 1; }
-. "$LIBEXEC/common.sh"
+. "$LIBEXEC/common_lib"
 
 _usage() {
   cat >&2 <<'EOF'
@@ -66,20 +66,20 @@ EOF
 cmd=${1:-}
 [ "$#" -gt 0 ] && shift
 case $cmd in
-  install)   . "$LIBEXEC/install.sh"; sev_install "$@" ;;
-  uninstall) . "$LIBEXEC/install.sh"; sev_uninstall "$@" ;;
-  list)    . "$LIBEXEC/profile.sh"; sev_list "$@" ;;
-  show)    . "$LIBEXEC/profile.sh"; sev_show "$@" ;;
-  use)     . "$LIBEXEC/profile.sh"; sev_use "$@" ;;
-  current) . "$LIBEXEC/profile.sh"; sev_current "$@" ;;
-  init)    . "$LIBEXEC/profile.sh"; sev_init "$@" ;;
-  seal)    sev_sudo_prime; . "$LIBEXEC/seal.sh";   sev_seal "$@" ;;
-  runner)  sev_sudo_prime; . "$LIBEXEC/runner.sh"; sev_runner "$@" ;;
-  forget)  . "$LIBEXEC/forget.sh"; sev_forget "$@" ;;
-  check)    . "$LIBEXEC/check.sh"; sev_check "$@" ;;
-  validate) . "$LIBEXEC/validate.sh"; sev_validate "$@" ;;
-  doctor)   . "$LIBEXEC/doctor.sh"; sev_doctor "$@" ;;
-  guard)    . "$LIBEXEC/guard.sh"; sev_guard "$@" ;;
+  install)   . "$LIBEXEC/install_lib"; sev_install "$@" ;;
+  uninstall) . "$LIBEXEC/install_lib"; sev_uninstall "$@" ;;
+  list)    . "$LIBEXEC/profile_lib"; sev_list "$@" ;;
+  show)    . "$LIBEXEC/profile_lib"; sev_show "$@" ;;
+  use)     . "$LIBEXEC/profile_lib"; sev_use "$@" ;;
+  current) . "$LIBEXEC/profile_lib"; sev_current "$@" ;;
+  init)    . "$LIBEXEC/profile_lib"; sev_init "$@" ;;
+  seal)    sev_sudo_prime; . "$LIBEXEC/seal_lib";   sev_seal "$@" ;;
+  runner)  sev_sudo_prime; . "$LIBEXEC/runner_lib"; sev_runner "$@" ;;
+  forget)  . "$LIBEXEC/forget_lib"; sev_forget "$@" ;;
+  check)    . "$LIBEXEC/check_lib"; sev_check "$@" ;;
+  validate) . "$LIBEXEC/validate_lib"; sev_validate "$@" ;;
+  doctor)   . "$LIBEXEC/doctor_lib"; sev_doctor "$@" ;;
+  guard)    . "$LIBEXEC/guard_lib"; sev_guard "$@" ;;
   # `context resolve|guard` was a CONSUMER's vocabulary on severance's binary:
   # two questions welded together because one integration asked them that way.
   # resolve retired into `current`; guard is a top-level verb. Kept as a loud

@@ -1,4 +1,4 @@
-# install.sh - the STANDALONE installer (`severance install` / `uninstall`).
+# install_lib - the STANDALONE installer (`severance install` / `uninstall`).
 # Symlinks the package into ~/.local, and NOTHING else. It does not configure
 # any other tool, and ships no adapter for one: severance's CLI is the
 # interface, and wiring a consumer to it is the integrator's job. NEVER needed

@@ -10,13 +10,13 @@
 # delegation smokes and this is where the real coverage lives.
 set -eu
 
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init severance
 
 SEVROOT=$HERE
-WCLIB=$SEVROOT/libexec/work-context.sh
-SEAL=$SEVROOT/libexec/seal.sh
-RUNNER=$SEVROOT/libexec/runner.sh
+WCLIB=$SEVROOT/libexec/work-context_lib
+SEAL=$SEVROOT/libexec/seal_lib
+RUNNER=$SEVROOT/libexec/runner_lib
 SEV=$SEVROOT/bin/severance
 
 # ============================ SEAL ==========================================
@@ -505,7 +505,7 @@ esac
 # one thing a human hand-writes: a key documented but not parsed fails loud at
 # provision time, and a key parsed but not documented is a feature nobody can
 # find. Both directions, held to the parser.
-_rdr=$SEVROOT/libexec/work-context.sh
+_rdr=$SEVROOT/libexec/work-context_lib
 keys=$(sed -n '/while IFS=.=. read -r k v/,/esac/p' "$_rdr" \
        | sed -n 's/^      \([a-z_]*\)).*/\1/p')
 [ -n "$keys" ] || fail "could not extract the record keys from the reader"

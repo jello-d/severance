@@ -26,7 +26,7 @@
 # test that cannot run must not read as a test that passed.
 set -eu
 
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init seal-real
 
 command -v bwrap >/dev/null 2>&1 || {

@@ -1,4 +1,4 @@
-# guard.sh - the ZDR REFUSE, exposed as `severance guard [profile]`. Sourced by
+# guard_lib - the ZDR REFUSE, exposed as `severance guard [profile]`. Sourced by
 # bin/severance.
 #
 # Inside an enclave's work_dir WITHOUT its group is the ONE forbidden state: the

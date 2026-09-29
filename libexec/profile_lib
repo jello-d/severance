@@ -1,6 +1,6 @@
-# profile.sh - profile record management + the default marker. Sourced by
+# profile_lib - profile record management + the default marker. Sourced by
 # bin/severance for the list / show / use / init verbs. The reader (sourced by
-# common.sh) provides WC_PROFILES_DIR, WC_DEFAULT_FILE, wc_profiles, wc_load.
+# common_lib) provides WC_PROFILES_DIR, WC_DEFAULT_FILE, wc_profiles, wc_load.
 #
 # On a host-managed box the host may drive the active profile (publishing
 # ~/.config/severance/default from its own source each run), so `severance use`
@@ -113,7 +113,7 @@ sev_init() {
   # Reject a bad name HERE rather than scaffolding a record that only fails at
   # validate: the name is the enclave's published identity, so it has to be
   # legal everywhere it lands before anything is written.
-  . "$LIBEXEC/validate.sh"
+  . "$LIBEXEC/validate_lib"
   _dns_label "$_name" || {
     echo "severance: '$_name' is not a valid profile name. Use a DNS" >&2
     echo "  label: a-z, 0-9 and hyphen, no leading or trailing hyphen," >&2
@@ -133,7 +133,7 @@ sev_init() {
   } > "$_f"
   echo "severance: wrote $_f"
   # Validate the scaffold parses + is sane, then point at the next steps.
-  # (validate.sh is already sourced above, for the name check.)
+  # (validate_lib is already sourced above, for the name check.)
   _validate_record "$_name"
   echo "severance: edit it (work_dir), then:"
   echo "  severance seal        # provision the wall"

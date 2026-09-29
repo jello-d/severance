@@ -23,21 +23,22 @@
 # know about one command rather than two.
 #
 # A subshell with an added group + env; nothing persists. Reads the severance
-# profiles via work-context.sh. Sole sudo entry point for the boundary.
+# profiles via work-context_lib. Sole sudo entry point for the boundary.
 set -eu
 
 self=$(command -v -- "$0" 2>/dev/null || printf '%s\n' "$0")
 
 # Locate the work-context reader. severance ships it beside us at
-# ../libexec/severance/work-context.sh (resolve our real path through any
+# ../libexec/severance/work-context_lib (resolve our real path through any
 # install symlink to find it); fall back to the installed and the legacy paths
 # so a standalone box, a host-managed box, and a mid-transition box all resolve.
 _real=$(readlink -f -- "$self" 2>/dev/null || printf '%s\n' "$self")
 wc_lib=
 for _cand in \
   "${SEVERANCE_LIB:-}" \
-  "${_real%/*}/../libexec/work-context.sh" \
-  "$HOME/.local/libexec/severance/work-context.sh" \
+  "${_real%/*}/../libexec/work-context_lib" \
+  "$HOME/.local/libexec/severance/work-context_lib" \
+  "$HOME/lib/work/work-context_lib" \
   "$HOME/lib/work/work-context.sh"; do
   if [ -n "$_cand" ] && [ -r "$_cand" ]; then wc_lib=$_cand; break; fi
 done

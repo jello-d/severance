@@ -1,4 +1,4 @@
-# work-context.sh - shared reader for the active work PROFILE (enclave).
+# work-context_lib - shared reader for the active work PROFILE (enclave).
 #
 # A machine may provision N profiles (multitenant); each is one record at
 # $WC_PROFILES_DIR/<name>. Source this, call wc_load [name], then use the WC_*
@@ -233,7 +233,7 @@ wc_current() {   # [pid]
 # one line where a plugin API would need discovery, an env contract, exit-code
 # classification and an introspection verb -- for four rows. It also makes a
 # gap legible: gcloud has a sealed dir and no env var, which is invisible when
-# the same fact is spread across seal.sh and bin/work.
+# the same fact is spread across seal_lib and bin/work.
 #
 # Ownership follows /etc/profile + /etc/profile.d. severance ships and owns
 # share/tools; an integrator adds its own tools in its OWN drop-in under

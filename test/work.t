@@ -17,11 +17,11 @@
 # Nothing outside the scratch dir is read or written.
 set -eu
 
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init work
 
 WORK=$HERE/bin/work
-WCLIB=$HERE/libexec/work-context.sh
+WCLIB=$HERE/libexec/work-context_lib
 PG=$T/pg
 mkdir -p "$PG" "$T/bin"
 

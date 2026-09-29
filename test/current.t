@@ -15,11 +15,11 @@
 # WC_DEFAULT_FILE point into T, so the box's own profiles never load.
 set -eu
 
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init current
 
 SEV=$HERE/bin/severance
-WCLIB=$HERE/libexec/work-context.sh
+WCLIB=$HERE/libexec/work-context_lib
 PG=$T/pg
 mkdir -p "$PG" "$T/bin"
 
@@ -254,7 +254,7 @@ VKC=$T/vk
 mkdir -p "$VKC/bin" "$VKC/valet-key"
 printf '#!/bin/sh\nexit 0\n' > "$VKC/bin/valet-key"
 chmod +x "$VKC/bin/valet-key"
-inst_out=$( ( . "$HERE/libexec/install.sh"
+inst_out=$( ( . "$HERE/libexec/install_lib"
               _sev_cfg() { echo "$VKC"; }
               SEVERANCE_SHARE=$HERE/share
               PATH="$VKC/bin:$PATH" _wiring_hint ) 2>&1 )
@@ -308,7 +308,7 @@ WC_PROFILES_DIR="$PG" sh -c ". '$WCLIB'
 # that tool can tell an answer from a failure on its own seam. The check moved
 # to the side that declared the seam; what stays here is the ARTIFACT, because
 # severance alone knows its own verbs.
-grep -q valet "$HERE/libexec/doctor.sh" &&
+grep -q valet "$HERE/libexec/doctor_lib" &&
   fail "doctor still reaches into a consumer's config"
 grep -rq "valet-key/context" "$HERE/libexec" &&
   fail "libexec still names a consumer's config path"

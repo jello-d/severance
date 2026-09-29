@@ -31,7 +31,7 @@
 # Everything it makes is removed on exit, including on failure.
 set -eu
 
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init wall-privileged
 
 [ "${SEVERANCE_TEST_PRIVILEGED:-}" = 1 ] || {

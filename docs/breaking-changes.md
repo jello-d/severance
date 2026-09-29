@@ -175,6 +175,36 @@ to its own default pool root -- outside the seal. Add it.
 Existing records that set them keep working; `severance validate` warns when
 `work_group` differs from the profile name.
 
+## 12. The libexec files lost their `.sh`
+
+    ~/.local/libexec/severance/work-context.sh
+      ->  ~/.local/libexec/severance/work-context_lib
+
+and the same for every other file in `libexec/`. A filename says what the file
+is to its LOADER, not which language it is in: these are sourced fragments,
+never run, so they take a `_lib` classifier (`-` separates words in the name,
+`_` separates the name from the classifier). `setup.sh` is unchanged -- that
+name is a cross-repo contract every integrator invokes.
+
+Only ONE of these is a published path: **`work-context_lib`**, the reader an
+integrator sources to get `wc_load` / `wc_profiles` / `WC_*`. The rest are
+internal to `bin/severance` and `bin/work`, which move with them.
+
+**If you source the reader,** find it rather than hardcode it, and accept both
+names for one release. `bin/work` already searches a list; a consumer should do
+the same:
+
+    for f in "$HOME/.local/libexec/severance/work-context_lib" \
+             "$HOME/.local/libexec/severance/work-context.sh"; do
+      [ -r "$f" ] && { . "$f"; break; }
+    done
+
+The window matters because the two halves do not land on a box together.
+tackup, for one, relinks its shim in the Link verb but only pulls severance in
+Install, and reads work context before either -- so for exactly one sweep its
+deployed shim and the installed reader are a release apart. Drop the fallback
+once every box has swept past this.
+
 ---
 
 # What a consumer needs

@@ -1,5 +1,5 @@
-# common.sh - shared bootstrap for the severance CLI, sourced by bin/severance
-# before a verb file (seal.sh / runner.sh / check.sh / ...).
+# common_lib - shared bootstrap for the severance CLI, sourced by bin/severance
+# before a verb file (seal_lib / runner_lib / check_lib / ...).
 #
 # It provides three things the ported provisioning logic expects:
 #   1. the work-context reader (wc_load / wc_profiles / wc_current / WC_*);
@@ -8,9 +8,9 @@
 #      captured `severance check` matches a host's own module checks;
 #   3. a sudo() shadow honoring SEVERANCE_DRYRUN (the build-only skip), so
 #      `seal`/`runner` assemble without the privileged push when asked.
-: "${LIBEXEC:?common.sh: LIBEXEC unset (source via bin/severance)}"
+: "${LIBEXEC:?common_lib: LIBEXEC unset (source via bin/severance)}"
 
-. "$LIBEXEC/work-context.sh"        # wc_load / wc_profiles / wc_current / WC_*
+. "$LIBEXEC/work-context_lib"        # wc_load / wc_profiles / wc_current / WC_*
 
 # Provisioning reads profile records from the runtime dir by default; a host
 # delegator can point us at its own records via SEVERANCE_PROFILES_DIR (e.g. a

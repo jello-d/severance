@@ -1,7 +1,7 @@
 #!/bin/sh
 # test/runner-unit.t - the runner's DERIVED VALUES, without any privilege.
 #
-# libexec/runner.sh is mostly a sequence of privileged operations, and its
+# libexec/runner_lib is mostly a sequence of privileged operations, and its
 # apply path needs root, systemd and a working docker -- so it had no coverage
 # beyond its audit, which itself ran against stubs. But the privileged calls
 # are only the last step; what they are TOLD to do is computed first, by pure
@@ -11,14 +11,14 @@
 #
 # Getting one of those wrong is a real boundary bug (a socket dir the group
 # cannot traverse, or one everyone can), and none of it needs root to check.
-# So they are pulled out and driven directly, the same way seal.sh's
+# So they are pulled out and driven directly, the same way seal_lib's
 # render_git_gen is.
 set -eu
 
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init runner-unit
 
-RUNNER_LIB=$HERE/libexec/runner.sh
+RUNNER_LIB=$HERE/libexec/runner_lib
 
 # Extract one function by NAME, tracking brace depth.
 #

@@ -1,7 +1,7 @@
-# validate.sh - lint profile RECORDS, so a malformed or dangerous record is
+# validate_lib - lint profile RECORDS, so a malformed or dangerous record is
 # caught BEFORE it provisions a broken or over-broad wall. Sourced by
 # bin/severance (the `validate` verb), and reused by check + doctor + init. Uses
-# the report markers from common.sh, so it folds into REPORT_RC.
+# the report markers from common_lib, so it folds into REPORT_RC.
 
 # Validate ONE record: parses, required keys present, and sane bounds (a valid
 # group name; work_dir an absolute path that is NOT $HOME or / -- the wall must

@@ -14,7 +14,7 @@
 # since a sealed one cannot be traversed without the very group being tested.
 set -eu
 
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init guard
 
 SEV=$HERE/bin/severance

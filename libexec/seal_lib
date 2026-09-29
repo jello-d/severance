@@ -1,6 +1,6 @@
-# seal.sh - provision and audit the work boundary, PER PROFILE. The mechanism is
-# generic (a host provisioner may drive it, or it runs standalone). Sourced by
-# bin/severance after common.sh.
+# seal_lib - provision and audit the work boundary, PER PROFILE. The mechanism
+# is generic (a host provisioner may drive it, or it runs standalone). Sourced
+# by bin/severance after common_lib.
 #
 # Reads the severance profiles and makes each enclave's boundary real:
 #   - the profile group exists (and the login user is NOT a permanent member)
