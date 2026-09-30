@@ -59,6 +59,8 @@ for form in "" "enter" "enter alpha"; do
   sudo_reached || fail "work ${form:-(bare)}: did not reach the re-exec"
 done
 
+# conventions: allow -- `work run -- CMD` is severance's own CLI separator,
+# so these assertion messages quote the signature under test
 rc=0; work run -- echo hi >/dev/null 2>&1 || rc=$?
 [ "$rc" = 97 ] || fail "work run -- CMD: rc=$rc, want 97"
 rc=0; work run alpha -- echo hi >/dev/null 2>&1 || rc=$?
