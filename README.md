@@ -108,7 +108,7 @@ Work-scoped tools keep their credentials under the enclave config root
 *Which* tools, and which of them get an explicit belt-and-braces seal, is
 **data**:
 
-    # share/tools -- severance's defaults
+    # share/tools: severance's defaults
     # tool     env                  dir      seal
     claude     CLAUDE_CONFIG_DIR    claude   no
     gemini     GEMINI_CLI_HOME      gemini   yes

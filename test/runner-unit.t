@@ -2,7 +2,7 @@
 # test/runner-unit.t - the runner's DERIVED VALUES, without any privilege.
 #
 # libexec/runner_lib is mostly a sequence of privileged operations, and its
-# apply path needs root, systemd and a working docker -- so it had no coverage
+# apply path needs root, systemd and a working docker, so it had no coverage
 # beyond its audit, which itself ran against stubs. But the privileged calls
 # are only the last step; what they are TOLD to do is computed first, by pure
 # functions over the loaded WC_*. Those compute the runner's identity, its

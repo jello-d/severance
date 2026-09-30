@@ -237,7 +237,7 @@ hook file: empty output or a non-zero exit means its baseline, which is what
 
 **A credential router** that wants to select an account and refuse an
 incoherent launch calls both verbs. valet-key does that through two hook
-DIRECTORIES, a selector and a veto, where a hook's directory is the verb --
+DIRECTORIES, a selector and a veto, where a hook's directory is the verb,
 so its integration is one line in each, and neither package names the other.
 Those files belong to whoever configures the box.
 

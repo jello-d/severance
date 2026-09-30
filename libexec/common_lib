@@ -25,7 +25,7 @@
 # overwritten on the next provision. Standalone (a real dir), they act normally.
 _sev_host_managed() { [ -L "$WC_PROFILES_DIR" ]; }
 _sev_host_note() {   # <verb>
-  echo "severance: this box is host-managed -- its records come from a" >&2
+  echo "severance: this box is host-managed: its records come from a" >&2
   echo "  provisioner. Manage profiles at the host's source, re-provision," >&2
   echo "  not with 'severance $1'." >&2
 }

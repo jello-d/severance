@@ -104,7 +104,7 @@ printf 'enclave-owned edits\n' > "$DST"                # the enclave owns it now
 pcm_run >/dev/null 2>&1
 grep -q 'enclave-owned edits' "$DST" || fail "seed: clobbered the enclave doc"
 
-# --- seal check: over a profiles dir; clean, then each wall knob driven red --
+# --- seal check: over a profiles dir; clean, then each wall knob driven red ---
 R=$T/sealchk
 mkdir -p "$R/self/profiles" "$T/home/wt" "$T/bin" "$T/empty" "$R/enc"
 printf 'work_group=wg\nwork_dir=~/wt\nclaude_config=~/.cw\n' \
@@ -371,7 +371,7 @@ env -i PATH="$FB:/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$T/fp-link" \
 
 # --purge must CLEAR the default marker when it named the purged profile.
 # Otherwise the marker outlives its record, and every later resolve either
-# silently falls to the sole-profile rule or fails on a profile that is gone --
+# silently falls to the sole-profile rule or fails on a profile that is gone,
 # a dangling pointer left behind by a cleanup verb.
 DF=$T/fp-default
 printf 'work_group=d\nwork_dir=/w/d\nrunner=d-run\n' > "$FP/doomed"

@@ -62,7 +62,7 @@ sev_guard() {   # [profile] -- advisory, ignored
     esac
     _r=0; wc_group_rank || _r=$?
     [ "$_r" -lt 2 ] && return 0            # in the tree AND in its group: ok
-    echo "severance: REFUSING -- inside the '$WC_PROFILE' work tree" >&2
+    echo "severance: REFUSING: inside the '$WC_PROFILE' work tree" >&2
     echo "  ($WC_DIR) without the '$WC_GROUP' group. The personal" >&2
     echo "  (non-ZDR) account must not touch work files. Run 'work' first." >&2
     return 1

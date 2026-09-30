@@ -17,8 +17,8 @@
 # here must be gid 0. `chown root:<other-group>` fails with EINVAL against an
 # unmapped gid, and mapping a range needs newuidmap through a userns this
 # system's AppArmor policy denies unprivileged processes
-# (apparmor_restrict_unprivileged_userns=1). The seal code is group-agnostic --
-# it uses $WC_GROUP throughout -- so a degenerate group still exercises every
+# (apparmor_restrict_unprivileged_userns=1). The seal code is group-agnostic:
+# it uses $WC_GROUP throughout, so a degenerate group still exercises every
 # line. What it CANNOT prove is the thing that needs a second identity: that a
 # non-member is actually denied. See the note at the end.
 #

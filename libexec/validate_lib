@@ -4,7 +4,7 @@
 # the report markers from common_lib, so it folds into REPORT_RC.
 
 # Validate ONE record: parses, required keys present, and sane bounds (a valid
-# group name; work_dir an absolute path that is NOT $HOME or / -- the wall must
+# group name; work_dir an absolute path that is NOT $HOME or /; the wall must
 # be a subdirectory, never the whole home or root).
 # A profile name is the enclave's PUBLISHED IDENTITY: it is the group name, a
 # path component, and the token `severance current` hands to consumers that use

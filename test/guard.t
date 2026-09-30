@@ -102,7 +102,7 @@ rc=0; ( cd "$T/theirs-other" && guard ) >/dev/null 2>&1 || rc=$?
 # The sealed tree is 2770 root:<group>: without the group it cannot be entered
 # to canonicalise, which is exactly the state being guarded. So the CONFIGURED
 # spelling has to be matched too, or the refuse silently never fires for a real
-# sealed enclave. cwd is opened first, then the tree is locked behind us --
+# sealed enclave. cwd is opened first, then the tree is locked behind us,
 # getcwd(2) keeps working, `cd` into it does not.
 mkdir -p "$T/locked/sub"
 printf 'work_group=%s\nwork_dir=%s\n' "$NONE" "$T/locked" > "$PG/locked"
