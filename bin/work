@@ -29,9 +29,12 @@ set -eu
 self=$(command -v -- "$0" 2>/dev/null || printf '%s\n' "$0")
 
 # Locate the work-context reader. severance ships it beside us at
-# ../libexec/severance/work-context_lib (resolve our real path through any
-# install symlink to find it); fall back to the installed and the legacy paths
-# so a standalone box, a host-managed box, and a mid-transition box all resolve.
+# ../libexec/work-context_lib, so resolving our own real path through the
+# install symlink finds it in the payload (~/.local/share/severance), in a
+# checkout, and in a relocated copy alike. The rest of the list is the RETIRED
+# layout and the legacy filename, kept for one release so a box mid-sweep still
+# resolves: ~/.local/libexec/severance was where the reader lived before the
+# payload conversion, and work-context.sh was its name before the _lib rename.
 _real=$(readlink -f -- "$self" 2>/dev/null || printf '%s\n' "$self")
 wc_lib=
 for _cand in \

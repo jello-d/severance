@@ -1,87 +1,31 @@
-# install_lib - the STANDALONE installer (`severance install` / `uninstall`).
-# Symlinks the package into ~/.local, and NOTHING else. It does not configure
-# any other tool, and ships no adapter for one: severance's CLI is the
-# interface, and wiring a consumer to it is the integrator's job. NEVER needed
-# on a host-managed box, where a provisioner symlinks the package itself.
-# Sourced by bin/severance for the install/uninstall verbs.
-
-# The package (clone) root: bin/severance is $SEVERANCE_SELF, so root is two up.
-_sev_pkg_root() {
-  _d=${SEVERANCE_SELF%/*}          # .../bin
-  printf '%s\n' "${_d%/*}"         # the package root
-}
-_sev_bin()    { echo "${SEVERANCE_BIN:-$HOME/.local/bin}"; }
-_sev_libdir() { echo "${SEVERANCE_LIBEXEC:-$HOME/.local/libexec}"; }
-_sev_shrdir() { echo "${SEVERANCE_SHARE_DIR:-$HOME/.local/share}"; }
-_sev_cfg()    { echo "${XDG_CONFIG_HOME:-$HOME/.config}"; }
-
-_sev_ln() { mkdir -p "$(dirname "$2")"; ln -sfn "$1" "$2"; echo "  link $2"; }
-
-# What severance does NOT do: wire other tools up to itself. `severance install`
-# links this package into ~/.local and stops there.
+# install_lib - the `install` / `uninstall` verbs, which DELEGATE to setup.sh.
+# Sourced by bin/severance.
 #
-# It used to write an include.path into the user's global git config and drop a
-# hook into a consumer's config dir. Nobody installing a work/personal boundary
-# expects it to edit their git config, and special-casing git -- of all things
-# is the tell that it was the wrong layer. Which boxes get which integration
-# is the integrator's call: a provisioner places these, or a human does.
+# ONE INSTALLER, AND IT HAS TO BE setup.sh, for a reason this verb cannot work
+# around: setup.sh always sits at the root of the SOURCE tree, so what it copies
+# FROM is never in doubt. bin/severance self-locates, which is correct for
+# finding its own libexec and exactly wrong for finding a source: on an
+# installed box `severance install` resolves its "package root" to the PAYLOAD
+# (~/.local/share/severance), and an installer whose source is its own
+# destination is at best a no-op and at worst stages a tree over itself. That
+# was survivable while the install was a handful of symlinks; it is not now
+# that the install is a copy.
 #
-# It also ships no adapter for anyone. A copy of severance's own verbs living
-# in this repo for a consumer's benefit could only go stale, and did. The CLI
-# is the contract; a one-line hook calling it belongs with whoever owns the
-# box, and checking that hook belongs to whoever declared the seam.
-_wiring_hint() {
-  _cfg=$(_sev_cfg)
-  echo "severance: integrations are NOT wired by install (by design)."
-  echo "  Run 'severance doctor' to see what is missing. To wire by hand:"
-  echo "    git identity split:"
-  echo "      git config --global --add include.path \\"
-  echo "        $_cfg/git/work-context.gen"
-  echo "  A consumer that reads severance (a credential router, a session"
-  echo "  manager) drops in its own one-line hook calling 'severance"
-  echo "  current' or 'severance guard'. severance ships none: its CLI is"
-  echo "  the interface, and a copy of it here could only go stale."
-}
-
-_path_hint() {
-  case ":$PATH:" in
-    *":$1:"*) : ;;
-    *) echo "  NOTE: $1 is not on PATH -- add it (e.g. in ~/.profile)" ;;
-  esac
-}
-
-sev_install() {
-  _root=$(_sev_pkg_root)
-  _bin=$(_sev_bin)
-  echo "severance: installing from $_root"
-  for _b in "$_root"/bin/*; do
-    [ -e "$_b" ] && _sev_ln "$_b" "$_bin/$(basename "$_b")"
-  done
-  [ -d "$_root/libexec" ] \
-    && _sev_ln "$_root/libexec" "$(_sev_libdir)/severance"
-  [ -d "$_root/share" ] \
-    && _sev_ln "$_root/share" "$(_sev_shrdir)/severance"
-  for _m in "$_root"/man/man*/*.[0-9]; do
-    [ -e "$_m" ] || continue
-    _sec=$(basename "$(dirname "$_m")")
-    _sev_ln "$_m" "$(_sev_shrdir)/man/$_sec/$(basename "$_m")"
-  done
-  _path_hint "$_bin"
-  _wiring_hint
-  echo "severance: done. Next: severance init <name>, then severance seal."
-}
-
-sev_uninstall() {
-  _root=$(_sev_pkg_root)
-  _bin=$(_sev_bin)
-  for _b in "$_root"/bin/*; do
-    _t=$_bin/$(basename "$_b")
-    [ -L "$_t" ] && { rm -f "$_t"; echo "  rm $_t"; }
-  done
-  for _d in "$(_sev_libdir)/severance" "$(_sev_shrdir)/severance"; do
-    [ -L "$_d" ] && { rm -f "$_d"; echo "  rm $_d"; }
-  done
-  echo "severance: removed the ~/.local links. Any integration wiring was"
-  echo "  never ours to write and is left alone; remove it where you"
-  echo "  configured it."
+# So this resolves the source and hands over, and FAILS LOUD where there is no
+# source to hand over to, which is precisely the installed-payload case. It
+# stays a verb because the README documents it and a standalone user types it,
+# but it is a SPELLING of setup.sh, never a second implementation.
+sev_setup() {   # <install|uninstall>
+  _sv_bin=${SEVERANCE_SELF%/*}            # .../bin
+  _sv_root=${_sv_bin%/*}                  # the package root
+  _sv=$_sv_root/setup.sh
+  if [ ! -r "$_sv" ]; then
+    echo "severance: no setup.sh at $_sv_root, so there is nothing to" >&2
+    echo "  install FROM. You are running the installed payload, not a" >&2
+    echo "  source tree: run 'sh setup.sh $1' from a severance checkout" >&2
+    echo "  (or let your provisioner do it, which is the usual answer on a" >&2
+    echo "  host-managed box)." >&2
+    return 1
+  fi
+  exec sh "$_sv" "$1"
 }

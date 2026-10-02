@@ -32,8 +32,10 @@ export SEVERANCE_SHARE
 _usage() {
   cat >&2 <<'EOF'
 usage: severance <command> [args]
-  install | uninstall        standalone: (un)link into ~/.local. Links ONLY;
-                             it configures no other tool
+  install | uninstall        standalone: place (or remove) the package payload
+                             at ~/.local/share/severance and link bin + man
+                             into ~/.local. A spelling of './setup.sh install',
+                             so it needs a checkout; it configures no other tool
   list                       provisioned profiles (* marks the default)
   show   [profile]           the resolved settings, as a human report
   use    <profile>|--clear   set (or clear) the default-profile marker
@@ -66,8 +68,8 @@ EOF
 cmd=${1:-}
 [ "$#" -gt 0 ] && shift
 case $cmd in
-  install)   . "$LIBEXEC/install_lib"; sev_install "$@" ;;
-  uninstall) . "$LIBEXEC/install_lib"; sev_uninstall "$@" ;;
+  install)   . "$LIBEXEC/install_lib"; sev_setup install ;;
+  uninstall) . "$LIBEXEC/install_lib"; sev_setup uninstall ;;
   list)    . "$LIBEXEC/profile_lib"; sev_list "$@" ;;
   show)    . "$LIBEXEC/profile_lib"; sev_show "$@" ;;
   use)     . "$LIBEXEC/profile_lib"; sev_use "$@" ;;

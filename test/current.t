@@ -247,18 +247,23 @@ rc=0; XDG_CONFIG_HOME="$T/cfg" sev init my_work >/dev/null 2>&1 || rc=$?
 # existed, silently. The CLI is the contract; a one-line hook calling it
 # belongs with whoever owns the box.
 [ -e "$HERE/share/hooks" ] && fail "severance is shipping an adapter again"
-grep -rq "valet" "$HERE/libexec" && fail "libexec names a specific consumer"
+# setup.sh is in scope because the wiring hint lives there now: it is the
+# installer, so it is where a named consumer would creep back in.
+grep -rq "valet" "$HERE/libexec" "$HERE/setup.sh" &&
+  fail "the package names a specific consumer"
 
 # `install` must not write into any consumer's config, even with one on PATH.
+# Driven as a PROCESS against a scratch prefix rather than by poking a function,
+# because what matters is what a real install does to a real config root.
 VKC=$T/vk
-mkdir -p "$VKC/bin" "$VKC/valet-key"
+mkdir -p "$VKC/bin" "$VKC/cfg/valet-key"
 printf '#!/bin/sh\nexit 0\n' > "$VKC/bin/valet-key"
 chmod +x "$VKC/bin/valet-key"
-inst_out=$( ( . "$HERE/libexec/install_lib"
-              _sev_cfg() { echo "$VKC"; }
-              SEVERANCE_SHARE=$HERE/share
-              PATH="$VKC/bin:$PATH" _wiring_hint ) 2>&1 )
-[ -e "$VKC/valet-key/context" ] &&
+inst_out=$(env -i PATH="$VKC/bin:/usr/bin:/bin" HOME="$VKC/home" \
+  PREFIX="$VKC/p" XDG_BIN_HOME="$VKC/p/bin" XDG_DATA_HOME="$VKC/p/share" \
+  XDG_CONFIG_HOME="$VKC/cfg" NO_COLOR=1 sh "$HERE/setup.sh" install 2>&1) ||
+  fail "setup.sh install errored: $inst_out"
+[ -e "$VKC/cfg/valet-key/context" ] &&
   fail "install wrote into a consumer's config dir"
 case $inst_out in
   *"NOT wired by install"*) ;;

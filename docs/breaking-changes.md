@@ -209,6 +209,59 @@ pulls it. A consumer one commit ahead of the installed reader is therefore the
 normal state between sweeps, not a rare race. Drop the fallback once every box
 has swept past this.
 
+## 13. The install is a PAYLOAD, and `~/.local/libexec/severance` is gone
+
+The install used to leave five symlinks under `~/.local` pointing at the source
+tree. It now places a **copy**:
+
+    ~/.local/share/severance/{bin,libexec,share,man}   the payload
+    ~/.local/bin/severance   -> <payload>/bin/severance
+    ~/.local/bin/work        -> <payload>/bin/work
+    ~/.local/share/man/man1/severance.1 -> <payload>/man/man1/severance.1
+
+    ~/.local/libexec/severance                         RETIRED, removed
+
+**One published path moved**, and it is the one from entry 12:
+
+    ~/.local/libexec/severance/work-context_lib
+      ->  ~/.local/share/severance/libexec/work-context_lib
+
+**If you source the reader, SEARCH for it.** The snippet in entry 12 names only
+the retired root, so it now finds nothing. Put the payload first:
+
+    for f in "$HOME/.local/share/severance/libexec/work-context_lib" \
+             "$HOME/.local/libexec/severance/work-context_lib" \
+             "$HOME/.local/libexec/severance/work-context.sh"; do
+      [ -r "$f" ] && { . "$f"; break; }
+    done
+
+The two retired spellings stay in that list for one release, for the reason
+entry 12 gives: a consumer's checkout and this package's installed copy move
+independently, so a consumer one commit ahead of the installed payload is the
+NORMAL state between sweeps. Here that window is the dangerous direction, not
+the harmless one: a module that sources the reader and finds nothing dies, and a
+consumer whose ZDR guard is a hook that cannot be executed does not refuse
+anything. Drop the two fallbacks once every box has swept past this.
+
+**Why it changed**, because it is not tidiness. severance arrives on a
+provisioned box as a pinned clone under `~/.cache/tackup/pkgs/severance`, which
+is re-cloned on every sweep and wiped on demand. Every one of those five links
+pointed into it, so all five were dangling links waiting for a cache wipe: a
+`work` that cannot acquire the group, a `severance guard` that cannot refuse,
+and a reader six modules source. The fleet rule is
+`shared-notes/_install-placement.md`: an installed artifact is a COPY at its
+deployed location, and its links may point between installed locations but never
+back into a source tree.
+
+**`severance install` still works from a checkout** and is now a spelling of
+`./setup.sh install`. Run from the installed payload it REFUSES, naming
+setup.sh, because `bin/severance` self-locates: from the payload the verb's
+"package root" is its own destination, and an installer that copies is not safe
+to point at its own output. The installer is `setup.sh`, which always sits at
+the root of a source tree. `./setup.sh paths` prints every root the package
+owns; `./setup.sh check` fails while a retired `~/.local/libexec/severance`
+survives.
+
 ---
 
 # What a consumer needs

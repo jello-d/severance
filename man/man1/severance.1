@@ -63,10 +63,18 @@ fails loud rather than guessing a group.
 .SH COMMANDS
 .TP
 .B install \fR/\fB uninstall
-Standalone only: symlink the package into
-.IR ~/.local ,
-and nothing else: it configures no other tool. A guarded no-op under a host
-that already symlinks the package.
+A spelling of
+.BR "./setup.sh install" ,
+which is the installer: it PLACES a copy of the package (the
+.IR payload )
+at
+.I ~/.local/share/severance
+and links
+.IR ~/.local/bin/severance ,
+.I ~/.local/bin/work
+and the man page into it, and nothing else: it configures no other tool. Run
+from an installed payload it refuses, because there is no source tree there to
+install from.
 .TP
 .B list
 List provisioned profiles;
@@ -128,6 +136,30 @@ provision.
 Whole-boundary health in one report: installation, records, integrations
 (our own git identity fragment), and the live wall + runner.
 .SH FILES
+.TP
+.I ~/.local/share/severance/
+The installed PAYLOAD: a copy of the package, holding
+.IR bin ,
+.IR libexec ,
+.I share
+and
+.I man
+as siblings, because
+.B severance
+resolves its own real path and reads the other three relative to it. Nothing
+under
+.I ~/.local
+points back at a source tree.
+.B "./setup.sh paths"
+prints every root the package owns.
+.TP
+.I ~/.local/libexec/severance/
+RETIRED. It was the published location of the work-context reader;
+.B install
+removes it and
+.B "./setup.sh check"
+fails while one survives. The reader is now
+.IR <payload>/libexec/work-context_lib .
 .TP
 .I ~/.config/severance/profiles/<name>
 Profile records (key=value).

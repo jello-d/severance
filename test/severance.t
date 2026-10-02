@@ -263,7 +263,12 @@ rm -f "$T/no_traverse"
 run_r >/dev/null 2>&1 || fail "runner check drifted after healing every knob"
 
 # ============================ INSTALL (standalone) ==========================
-# A valet-key stub so the hook-publish path runs; git is real (via PATH).
+# The install itself lives in setup.sh and is covered by setup.t (payload,
+# links, migration, uninstall). What belongs HERE is the VERB: `severance
+# install` is a spelling of setup.sh, and the one thing that can go wrong with
+# a spelling is that it resolves the wrong source.
+#
+# A valet-key stub so nothing reaches a real one; git is real (via PATH).
 IB=$T/ibin; mkdir -p "$IB"
 printf '#!/bin/sh\nexit 0\n' > "$IB/valet-key"; chmod +x "$IB/valet-key"
 inst() {   # <home> <verb>
@@ -274,17 +279,20 @@ gget() {   # <home> -> the global include.path values
     git config --global --get-all include.path 2>/dev/null
 }
 
-# fresh install into an empty HOME: LINKS ONLY. `severance install` configures
-# no other tool: nobody installing a work/personal boundary expects it to
-# edit their git config, and which boxes get which integration is the
-# integrator's call. severance publishes the artifacts and audits the result;
-# placing them is somebody else's job.
+# From a CHECKOUT the verb reaches setup.sh and installs the payload. HOME is
+# the only destination control here (no PREFIX), which is the standalone user's
+# path: ~/.local, derived.
 H1=$T/h1; mkdir -p "$H1"
 inst "$H1" install >/dev/null 2>&1 || fail "install exited non-zero"
-[ -L "$H1/.local/bin/severance" ] || fail "install: severance not linked"
-[ -L "$H1/.local/bin/work" ]      || fail "install: work not linked"
-[ -L "$H1/.local/libexec/severance" ] || fail "install: libexec not linked"
-[ -L "$H1/.local/share/severance" ]   || fail "install: share not linked"
+PAY1=$H1/.local/share/severance
+[ -d "$PAY1" ] && [ ! -L "$PAY1" ] || fail "install: no payload tree"
+for _c in severance work; do
+  [ "$(readlink "$H1/.local/bin/$_c")" = "$PAY1/bin/$_c" ] \
+    || fail "install: $_c does not link into the payload"
+done
+# The retired root, which is the published path this change moves.
+[ -e "$H1/.local/libexec/severance" ] \
+  && fail "install: recreated the retired libexec root"
 
 # ...and it touched NOTHING else. These are the two it used to write.
 gget "$H1" | grep -q work-context.gen \
@@ -303,13 +311,34 @@ case $hint in
   *) fail "install's hint does not point at doctor" ;;
 esac
 
-# idempotent: a second run is still links-only and still errors on nothing.
-[ -L "$H1/.local/bin/severance" ] || fail "install (rerun): link lost"
+# idempotent: a second run still leaves a payload and the links.
+[ "$(readlink "$H1/.local/bin/severance")" = "$PAY1/bin/severance" ] \
+  || fail "install (rerun): link lost"
 
-# uninstall removes the ~/.local links.
+# THE VERB RUN FROM THE INSTALLED PAYLOAD MUST REFUSE, and this is the whole
+# reason the install moved to setup.sh. bin/severance self-locates, which is
+# right for finding its own libexec and wrong for finding a SOURCE: from the
+# payload the verb's "package root" IS its own destination. While the install
+# was five symlinks that was a harmless no-op; now that it copies and swaps, an
+# installer pointed at its own output is a tree staged over itself. There is no
+# setup.sh in a payload, so the verb says so instead of guessing.
+pay_rc=0
+env -i PATH="$IB:/usr/bin:/bin" HOME="$H1" "$PAY1/bin/severance" install \
+  >/dev/null 2>"$T/payerr" || pay_rc=$?
+[ "$pay_rc" = 1 ] || fail "install from the payload: rc=$pay_rc, want 1"
+payerr=$(cat "$T/payerr")
+case $payerr in
+  *"no setup.sh"*"setup.sh install"*) ;;
+  *) fail "install from the payload did not name setup.sh: $payerr" ;;
+esac
+# It refused, so it must not have touched the payload it was aimed at.
+[ -d "$PAY1" ] && [ ! -e "$PAY1.new" ] \
+  || fail "a refused install still staged over the payload"
+
+# uninstall removes the payload and the links.
 inst "$H1" uninstall >/dev/null 2>&1 || fail "uninstall exited non-zero"
+[ -e "$PAY1" ] || [ -L "$PAY1" ] && fail "uninstall: left the payload"
 [ -L "$H1/.local/bin/severance" ] && fail "uninstall: left the severance link"
-[ -L "$H1/.local/libexec/severance" ] && fail "uninstall: left the libexec link"
 
 # ============================ VALIDATE ======================================
 VD=$T/vd; mkdir -p "$VD"

@@ -26,18 +26,30 @@ lacking the group, is denied by the filesystem.
 
 ## Install
 
-    ./bin/severance install      # symlink into ~/.local -- and nothing else
+    ./setup.sh install           # place the payload, link bin + man
     # ensure ~/.local/bin is on PATH
 
-`install` symlinks the package and does **nothing else**: it configures no
-other tool. Nobody installing a work/personal boundary expects it to edit their
-git config, and which boxes get which integration is the integrator's call.
-severance's CLI is what it is integrated by; wiring a consumer to it is
-somebody else's job, and so is checking that their end of the seam works.
+`setup.sh` is the installer. It **places a copy** of the package at
+`~/.local/share/severance` (the *payload*) and links `~/.local/bin/severance`,
+`~/.local/bin/work` and the man page into it. Nothing under `~/.local` points
+back at the source tree, so a checkout can move, or a provisioner's clone be
+wiped and re-cloned, without leaving a dangling `work` or an unrunnable
+`severance guard`. See **Layout** for the shape and why it is that shape.
 
-`install` is only for a standalone box. Under a provisioning layer (e.g. tackup)
-that already symlinks the package and owns the git/valet-key hooks, it is a
-guarded no-op. `severance uninstall` removes the links.
+`severance install` is a spelling of `./setup.sh install`, kept because a
+standalone user types it. From an installed payload it refuses and says so:
+there is no source tree there to install from.
+
+`install` does **nothing else**: it configures no other tool. Nobody installing
+a work/personal boundary expects it to edit their git config, and which boxes
+get which integration is the integrator's call. severance's CLI is what it is
+integrated by; wiring a consumer to it is somebody else's job, and so is
+checking that their end of the seam works.
+
+`./setup.sh uninstall` removes the links and the payload, and reports what it
+kept (your records, and the sealed trees, which are kernel state no uninstall
+can undo). `./setup.sh paths` prints every root the package owns, one
+`KIND<TAB>PATH` per line.
 
 ## Use
 
@@ -198,10 +210,33 @@ direction this must never fail in, so an unanswerable question exits 2.
 
     bin/severance       management + provisioning CLI (self-locating)
     bin/work            the enclave-entry command
-    libexec/  the implementation (work-context reader, seal, runner,
-                        check, ZDR guard, profile mgmt, installer)
-    share/    the generic enclave note, the runner relay unit,
+    libexec/            the implementation (work-context reader, seal, runner,
+                        check, ZDR guard, profile mgmt)
+    share/              the generic enclave note, the runner relay unit,
                         and tools (the per-tool config table)
+    man/man1/           the man page
+    setup.sh            the installer
+
+Installed, those four directories are **copied** into one payload tree, with
+links into it:
+
+    ~/.local/share/severance/{bin,libexec,share,man}  the payload (a COPY)
+    ~/.local/bin/severance              -> <payload>/bin/severance
+    ~/.local/bin/work                  -> <payload>/bin/work
+    ~/.local/share/man/man1/severance.1 -> <payload>/man/man1/severance.1
+
+`bin/severance` finds its own `libexec` and `share` by resolving its real path
+and reading them as siblings. That is the one mechanism, and it is why all four
+directories must live inside the one payload: it resolves identically in a
+checkout, in the payload, and in a relocated copy, with no path looked up by
+name. The nested `<payload>/share` is the cosmetic cost of that invariant.
+
+There is deliberately **no** `~/.local/libexec/severance`. That root is retired;
+`setup.sh install` removes it, and `setup.sh check` fails while one survives,
+because it is the path integrators were told to source the reader from. If you
+source the work-context reader it is now at
+`<payload>/libexec/work-context_lib`: **find it, do not hardcode it**
+(`docs/breaking-changes.md` has the search snippet and the reason).
 
 ## Safety notes
 
