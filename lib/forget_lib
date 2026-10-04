@@ -74,7 +74,7 @@ _purge_record() {   # <profile>
         rm -f "$WC_DEFAULT_FILE"; echo "  cleared the default marker"
       fi
     fi
-    . "$LIBEXEC/seal_lib"
+    . "$SEV_LIB/seal_lib"
     if [ -f "$GIT_GEN" ]; then
       render_git_gen > "$GIT_GEN" 2>/dev/null || true
       echo "  regenerated the git fragment"

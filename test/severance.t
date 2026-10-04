@@ -14,9 +14,9 @@ set -eu
 harness_init severance
 
 SEVROOT=$HERE
-WCLIB=$SEVROOT/libexec/work-context_lib
-SEAL=$SEVROOT/libexec/seal_lib
-RUNNER=$SEVROOT/libexec/runner_lib
+WCLIB=$SEVROOT/lib/work-context_lib
+SEAL=$SEVROOT/lib/seal_lib
+RUNNER=$SEVROOT/lib/runner_lib
 SEV=$SEVROOT/bin/severance
 
 # ============================ SEAL ==========================================
@@ -534,7 +534,7 @@ esac
 # one thing a human hand-writes: a key documented but not parsed fails loud at
 # provision time, and a key parsed but not documented is a feature nobody can
 # find. Both directions, held to the parser.
-_rdr=$SEVROOT/libexec/work-context_lib
+_rdr=$SEVROOT/lib/work-context_lib
 keys=$(sed -n '/while IFS=.=. read -r k v/,/esac/p' "$_rdr" \
        | sed -n 's/^      \([a-z_]*\)).*/\1/p')
 [ -n "$keys" ] || fail "could not extract the record keys from the reader"
@@ -612,11 +612,11 @@ case $out in *"names a missing profile"*)
 # resolving through it, and it carried the last hardcoded knowledge of a
 # specific tool's PERSONAL directory (~/.claude) with it. Dead code in a
 # boundary is worse than dead code elsewhere: it reads as a supported path.
-for _f in $(grep -rho '^[a-z_][a-z_0-9]*()' "$SEVROOT/bin" "$SEVROOT/libexec" \
+for _f in $(grep -rho '^[a-z_][a-z_0-9]*()' "$SEVROOT/bin" "$SEVROOT/lib" \
             | tr -d '()' | sort -u); do
   # A call is any mention that is not the definition line itself and not a
   # comment. Tests count: a function driven only by the suite is still live.
-  _n=$(grep -rho "\b$_f\b" "$SEVROOT/bin" "$SEVROOT/libexec" "$SEVROOT/test" \
+  _n=$(grep -rho "\b$_f\b" "$SEVROOT/bin" "$SEVROOT/lib" "$SEVROOT/test" \
        | wc -l)
   [ "$_n" -gt 1 ] || fail "dead function (defined, never called): $_f"
 done

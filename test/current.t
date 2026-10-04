@@ -19,7 +19,7 @@ set -eu
 harness_init current
 
 SEV=$HERE/bin/severance
-WCLIB=$HERE/libexec/work-context_lib
+WCLIB=$HERE/lib/work-context_lib
 PG=$T/pg
 mkdir -p "$PG" "$T/bin"
 
@@ -249,7 +249,7 @@ rc=0; XDG_CONFIG_HOME="$T/cfg" sev init my_work >/dev/null 2>&1 || rc=$?
 [ -e "$HERE/share/hooks" ] && fail "severance is shipping an adapter again"
 # setup.sh is in scope because the wiring hint lives there now: it is the
 # installer, so it is where a named consumer would creep back in.
-grep -rq "valet" "$HERE/libexec" "$HERE/setup.sh" &&
+grep -rq "valet" "$HERE/lib" "$HERE/setup.sh" &&
   fail "the package names a specific consumer"
 
 # `install` must not write into any consumer's config, even with one on PATH.
@@ -313,10 +313,10 @@ WC_PROFILES_DIR="$PG" sh -c ". '$WCLIB'
 # that tool can tell an answer from a failure on its own seam. The check moved
 # to the side that declared the seam; what stays here is the ARTIFACT, because
 # severance alone knows its own verbs.
-grep -q valet "$HERE/libexec/doctor_lib" &&
+grep -q valet "$HERE/lib/doctor_lib" &&
   fail "doctor still reaches into a consumer's config"
-grep -rq "valet-key/context" "$HERE/libexec" &&
-  fail "libexec still names a consumer's config path"
+grep -rq "valet-key/context" "$HERE/lib" &&
+  fail "lib still names a consumer's config path"
 
 # --- the retired verb fails CLOSED -------------------------------------------
 # valet-key's guard seam reads exit 2 as "warn, then PROCEED" and anything else

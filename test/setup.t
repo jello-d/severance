@@ -44,10 +44,10 @@ PAY=$P1/share/severance
 [ -d "$PAY" ] && [ ! -L "$PAY" ] || fail "no payload DIRECTORY at $PAY"
 # All four roots, because bin/severance self-locates ../libexec and ../share:
 # a payload missing one installs a command that cannot find its own reader.
-for _d in bin libexec share man; do
+for _d in bin lib share man; do
   [ -d "$PAY/$_d" ] || fail "payload is missing $_d/"
 done
-for _f in bin/severance bin/work libexec/work-context_lib share/tools \
+for _f in bin/severance bin/work lib/work-context_lib share/tools \
           man/man1/severance.1; do
   [ -e "$PAY/$_f" ] || fail "payload is missing $_f"
 done
@@ -112,7 +112,7 @@ done
 mkdir -p "$P2/bin" "$P2/libexec" "$P2/share/man/man1"
 ln -sfn "$HERE/bin/severance" "$P2/bin/severance"
 ln -sfn "$HERE/bin/work" "$P2/bin/work"
-ln -sfn "$HERE/libexec" "$P2/libexec/severance"
+ln -sfn "$HERE/lib" "$P2/libexec/severance"
 ln -sfn "$HERE/share" "$P2/share/severance"
 ln -sfn "$HERE/man/man1/severance.1" "$P2/share/man/man1/severance.1"
 

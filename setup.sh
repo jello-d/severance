@@ -24,8 +24,8 @@
 # module sources was reached through ~/.local/libexec/severance. A guard that
 # cannot be executed does not refuse anything.
 #
-# WHY bin, libexec, share AND man ALL LIVE INSIDE THE ONE PAYLOAD:
-# bin/severance resolves its own real path and reads ../libexec and ../share as
+# WHY bin, lib, share AND man ALL LIVE INSIDE THE ONE PAYLOAD:
+# bin/severance resolves its own real path and reads ../lib and ../share as
 # SIBLINGS, which is the one mechanism that makes a checkout, an installed
 # payload and a relocated copy all resolve the same way. Splitting them would
 # break that invariant, so the nested <payload>/share is kept deliberately.
@@ -45,7 +45,7 @@ _cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 _oldlib=$PREFIX/libexec/$PKG
 RC=0
 
-# Marker contract: the same plain [OK]/[FAIL]/[WARN] strings libexec/common_lib
+# Marker contract: the same plain [OK]/[FAIL]/[WARN] strings lib/common_lib
 # emits, so a host's check aggregator sees one vocabulary from this package.
 # Restated here rather than sourced, because setup.sh is standalone on purpose:
 # it is the one entry point a provisioner calls, and a missing lib must never
@@ -103,17 +103,17 @@ _payload_stage() {
   esac
   rm -rf -- "$_ps_new" "$_ps_old"
   mkdir -p "$_ps_new" || { bad "could not create $_ps_new"; return 1; }
-  for _d in bin libexec share man; do
+  for _d in bin lib share man; do
     if [ -d "$_root/$_d" ]; then
       cp -R "$_root/$_d" "$_ps_new/" || { bad "could not copy $_d"; return 1; }
     fi
   done
   # A PARTIAL PAYLOAD IS WORSE THAN NO PAYLOAD, because the commands still
-  # install and still run: bin/severance self-locates ../libexec, so a copy
+  # install and still run: bin/severance self-locates ../lib, so a copy
   # missing the reader produces a severance that cannot answer and a `work`
   # that cannot find its profiles, at a path that looks installed. Checked
   # before the swap, so a failed copy leaves the live payload untouched.
-  for _r in bin/severance bin/work libexec/work-context_lib share/tools; do
+  for _r in bin/severance bin/work lib/work-context_lib share/tools; do
     if [ ! -e "$_ps_new/$_r" ]; then
       bad "staged payload is missing $_r"
       rm -rf -- "$_ps_new"
@@ -238,7 +238,7 @@ do_check() {
   # moment that checkout moves or is re-cloned.
   if [ -L "$_pay" ]; then
     bad "$_pay is a SYMLINK: this install still depends on a source tree"
-  elif [ -d "$_pay" ] && [ -f "$_pay/bin/$PKG" ] && [ -d "$_pay/libexec" ] \
+  elif [ -d "$_pay" ] && [ -f "$_pay/bin/$PKG" ] && [ -d "$_pay/lib" ] \
       && [ -d "$_pay/share" ]; then
     ok "payload is a self-contained tree ($_pay)"
   else

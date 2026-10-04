@@ -210,8 +210,8 @@ direction this must never fail in, so an unanswerable question exits 2.
 
     bin/severance       management + provisioning CLI (self-locating)
     bin/work            the enclave-entry command
-    libexec/            the implementation (work-context reader, seal, runner,
-                        check, ZDR guard, profile mgmt)
+    lib/                the implementation, all SOURCED (work-context reader,
+                        seal, runner, check, ZDR guard, profile mgmt)
     share/              the generic enclave note, the runner relay unit,
                         and tools (the per-tool config table)
     man/man1/           the man page
@@ -220,12 +220,12 @@ direction this must never fail in, so an unanswerable question exits 2.
 Installed, those four directories are **copied** into one payload tree, with
 links into it:
 
-    ~/.local/share/severance/{bin,libexec,share,man}  the payload (a COPY)
+    ~/.local/share/severance/{bin,lib,share,man}      the payload (a COPY)
     ~/.local/bin/severance              -> <payload>/bin/severance
     ~/.local/bin/work                  -> <payload>/bin/work
     ~/.local/share/man/man1/severance.1 -> <payload>/man/man1/severance.1
 
-`bin/severance` finds its own `libexec` and `share` by resolving its real path
+`bin/severance` finds its own `lib` and `share` by resolving its real path
 and reading them as siblings. That is the one mechanism, and it is why all four
 directories must live inside the one payload: it resolves identically in a
 checkout, in the payload, and in a relocated copy, with no path looked up by
@@ -235,7 +235,7 @@ There is deliberately **no** `~/.local/libexec/severance`. That root is retired;
 `setup.sh install` removes it, and `setup.sh check` fails while one survives,
 because it is the path integrators were told to source the reader from. If you
 source the work-context reader it is now at
-`<payload>/libexec/work-context_lib`: **find it, do not hardcode it**
+`<payload>/lib/work-context_lib`: **find it, do not hardcode it**
 (`docs/breaking-changes.md` has the search snippet and the reason).
 
 ## Safety notes

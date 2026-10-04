@@ -39,7 +39,7 @@ _real=$(readlink -f -- "$self" 2>/dev/null || printf '%s\n' "$self")
 wc_lib=
 for _cand in \
   "${SEVERANCE_LIB:-}" \
-  "${_real%/*}/../libexec/work-context_lib" \
+  "${_real%/*}/../lib/work-context_lib" \
   "$HOME/.local/libexec/severance/work-context_lib" \
   "$HOME/lib/work/work-context_lib" \
   "$HOME/lib/work/work-context.sh"; do

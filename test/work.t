@@ -21,7 +21,7 @@ set -eu
 harness_init work
 
 WORK=$HERE/bin/work
-WCLIB=$HERE/libexec/work-context_lib
+WCLIB=$HERE/lib/work-context_lib
 PG=$T/pg
 mkdir -p "$PG" "$T/bin"
 

@@ -229,11 +229,14 @@ tree. It now places a **copy**:
 **If you source the reader, SEARCH for it.** The snippet in entry 12 names only
 the retired root, so it now finds nothing. Put the payload first:
 
-    for f in "$HOME/.local/share/severance/libexec/work-context_lib" \
+    for f in "$HOME/.local/share/severance/lib/work-context_lib" \
+             "$HOME/.local/share/severance/libexec/work-context_lib" \
              "$HOME/.local/libexec/severance/work-context_lib" \
              "$HOME/.local/libexec/severance/work-context.sh"; do
       [ -r "$f" ] && { . "$f"; break; }
     done
+
+The first entry is from entry 14 below; the rest are the retired spellings.
 
 The two retired spellings stay in that list for one release, for the reason
 entry 12 gives: a consumer's checkout and this package's installed copy move
@@ -261,6 +264,36 @@ to point at its own output. The installer is `setup.sh`, which always sits at
 the root of a source tree. `./setup.sh paths` prints every root the package
 owns; `./setup.sh check` fails while a retired `~/.local/libexec/severance`
 survives.
+
+## 14. `libexec/` became `lib/`, because these files are SOURCED
+
+Every file in severance's implementation directory is sourced, never executed:
+`bin/severance` dispatches each verb by sourcing the lib that implements it.
+FHS reserves `libexec` for programs a package EXECUTES and never puts on PATH,
+and `lib` for what it loads. severance had nothing in the first category, so
+the directory is now `lib/` and `libexec/` is gone from the source tree and
+from the payload.
+
+**One published path moved**, the same one as entries 12 and 13:
+
+    ~/.local/share/severance/libexec/work-context_lib
+      ->  ~/.local/share/severance/lib/work-context_lib
+
+**If you source the reader, SEARCH for it**, using the ladder in entry 13.
+The reason is unchanged and worth restating because this is the third time this
+path has moved: a consumer's checkout and this package's installed payload move
+INDEPENDENTLY, so a consumer one commit ahead of the installed copy is the
+normal state between sweeps. A module that sources the reader and finds nothing
+dies, and a consumer whose ZDR guard cannot be executed refuses nothing, so the
+window is the dangerous direction.
+
+**`SEV_LIB` replaces `LIBEXEC`** as the variable naming that directory. It is
+internal (set by `bin/severance`, asserted by `lib/common_lib`), so no consumer
+sets it, but a lib sourced out of context now fails naming the right thing.
+
+Nothing else moved: `bin/`, `share/` and `man/` are unchanged, and the payload
+is still staged fresh on every install, so no stale `libexec/` survives a
+reinstall.
 
 ---
 

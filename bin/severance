@@ -8,7 +8,7 @@
 #   severance runner [profile...]      provision the rootless-docker runner
 #   severance check  [--seal|--runner] audit; non-zero on drift (bare = both)
 #
-# Self-locates its libexec/share beside the binary (through any install
+# Self-locates its lib/share beside the binary (through any install
 # symlink). Idempotent; privileged verbs prompt sudo
 # once up front (a no-op when a cache is already warm, e.g. under a host).
 set -eu
@@ -21,13 +21,13 @@ esac
 SEVERANCE_SELF=$(readlink -f -- "$_self" 2>/dev/null || printf '%s\n' "$_self")
 export SEVERANCE_SELF
 _bindir=${SEVERANCE_SELF%/*}
-LIBEXEC=$_bindir/../libexec
+SEV_LIB=$_bindir/../lib
 SEVERANCE_SHARE=${SEVERANCE_SHARE:-$_bindir/../share}
 export SEVERANCE_SHARE
 
-[ -r "$LIBEXEC/common_lib" ] ||
-  { echo "severance: libexec not found at $LIBEXEC" >&2; exit 1; }
-. "$LIBEXEC/common_lib"
+[ -r "$SEV_LIB/common_lib" ] ||
+  { echo "severance: lib not found at $SEV_LIB" >&2; exit 1; }
+. "$SEV_LIB/common_lib"
 
 _usage() {
   cat >&2 <<'EOF'
@@ -68,20 +68,20 @@ EOF
 cmd=${1:-}
 [ "$#" -gt 0 ] && shift
 case $cmd in
-  install)   . "$LIBEXEC/install_lib"; sev_setup install ;;
-  uninstall) . "$LIBEXEC/install_lib"; sev_setup uninstall ;;
-  list)    . "$LIBEXEC/profile_lib"; sev_list "$@" ;;
-  show)    . "$LIBEXEC/profile_lib"; sev_show "$@" ;;
-  use)     . "$LIBEXEC/profile_lib"; sev_use "$@" ;;
-  current) . "$LIBEXEC/profile_lib"; sev_current "$@" ;;
-  init)    . "$LIBEXEC/profile_lib"; sev_init "$@" ;;
-  seal)    sev_sudo_prime; . "$LIBEXEC/seal_lib";   sev_seal "$@" ;;
-  runner)  sev_sudo_prime; . "$LIBEXEC/runner_lib"; sev_runner "$@" ;;
-  forget)  . "$LIBEXEC/forget_lib"; sev_forget "$@" ;;
-  check)    . "$LIBEXEC/check_lib"; sev_check "$@" ;;
-  validate) . "$LIBEXEC/validate_lib"; sev_validate "$@" ;;
-  doctor)   . "$LIBEXEC/doctor_lib"; sev_doctor "$@" ;;
-  guard)    . "$LIBEXEC/guard_lib"; sev_guard "$@" ;;
+  install)   . "$SEV_LIB/install_lib"; sev_setup install ;;
+  uninstall) . "$SEV_LIB/install_lib"; sev_setup uninstall ;;
+  list)    . "$SEV_LIB/profile_lib"; sev_list "$@" ;;
+  show)    . "$SEV_LIB/profile_lib"; sev_show "$@" ;;
+  use)     . "$SEV_LIB/profile_lib"; sev_use "$@" ;;
+  current) . "$SEV_LIB/profile_lib"; sev_current "$@" ;;
+  init)    . "$SEV_LIB/profile_lib"; sev_init "$@" ;;
+  seal)    sev_sudo_prime; . "$SEV_LIB/seal_lib";   sev_seal "$@" ;;
+  runner)  sev_sudo_prime; . "$SEV_LIB/runner_lib"; sev_runner "$@" ;;
+  forget)  . "$SEV_LIB/forget_lib"; sev_forget "$@" ;;
+  check)    . "$SEV_LIB/check_lib"; sev_check "$@" ;;
+  validate) . "$SEV_LIB/validate_lib"; sev_validate "$@" ;;
+  doctor)   . "$SEV_LIB/doctor_lib"; sev_doctor "$@" ;;
+  guard)    . "$SEV_LIB/guard_lib"; sev_guard "$@" ;;
   # `context resolve|guard` was a CONSUMER's vocabulary on severance's binary:
   # two questions welded together because one integration asked them that way.
   # resolve retired into `current`; guard is a top-level verb. Kept as a loud

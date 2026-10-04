@@ -18,7 +18,7 @@ sev_doctor() {
   _n=0; for _p in $(wc_profiles); do _n=$((_n + 1)); done
   if [ "$_n" -gt 0 ]; then _ok "$_n profile(s) provisioned"
   else _warn "no profiles provisioned (personal-only box)"; fi
-  . "$LIBEXEC/validate_lib"
+  . "$SEV_LIB/validate_lib"
   for _p in $(wc_profiles); do _validate_record "$_p"; done
 
   # 3. the default marker resolves
@@ -39,8 +39,8 @@ sev_doctor() {
   else _warn "git includeIf not wired (a host, or 'severance install')"; fi
 
   # 5. the live wall + runner (delegate to the existing audits)
-  . "$LIBEXEC/seal_lib";   sev_seal_check
-  . "$LIBEXEC/runner_lib"; sev_runner_check
+  . "$SEV_LIB/seal_lib";   sev_seal_check
+  . "$SEV_LIB/runner_lib"; sev_runner_check
 
   return "$REPORT_RC"
 }

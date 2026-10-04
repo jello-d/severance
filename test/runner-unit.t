@@ -18,7 +18,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init runner-unit
 
-RUNNER_LIB=$HERE/libexec/runner_lib
+RUNNER_LIB=$HERE/lib/runner_lib
 
 # Extract one function by NAME, tracking brace depth.
 #

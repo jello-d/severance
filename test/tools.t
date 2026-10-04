@@ -12,7 +12,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init tools
 
-WCLIB=$HERE/libexec/work-context_lib
+WCLIB=$HERE/lib/work-context_lib
 SHARE=$HERE/share
 D=$T/tools.d
 mkdir -p "$D"
@@ -112,7 +112,7 @@ mkdir -p "$T/bin"
 # Drives the REAL seal_tool_dirs, extracted from seal_lib, with the privileged
 # actuator stubbed. A helper that reimplemented the selection could not catch
 # that selection drifting, which is the whole point of testing it.
-std=$(sed -n '/^seal_tool_dirs() {/,/^}/p' "$HERE/libexec/seal_lib")
+std=$(sed -n '/^seal_tool_dirs() {/,/^}/p' "$HERE/lib/seal_lib")
 [ -n "$std" ] || fail "could not extract seal_tool_dirs from seal_lib"
 seal_targets() {
   env SEVERANCE_SHARE="$T/nope" WC_TOOLS_DIR="$D" PATH="$T/bin:/usr/bin:/bin" \
