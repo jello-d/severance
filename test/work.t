@@ -1,6 +1,8 @@
 #!/bin/sh
 # test/work.t - behavioral test for bin/work's ARGUMENT GRAMMAR:
 #
+# conventions: allow -- the dashes in the grammar below are work's OWN
+# end-of-options separator, the syntax under test, not punctuation.
 #   work | work enter [profile] | work run [profile] -- CMD ...
 #
 # The property under test is that nothing is ever GUESSED. work is the sole

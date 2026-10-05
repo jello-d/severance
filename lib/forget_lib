@@ -6,7 +6,7 @@
 # traverse ACL. The WALL and the profile RECORD are left intact.
 #
 # --purge also removes the record, clears the default marker if it named this
-# profile, and regenerates the git fragment for the survivors -- but LEAVES the
+# profile, and regenerates the git fragment for the survivors, but LEAVES the
 # work tree SEALED (the data is yours; reclaim it deliberately) and the GROUP in
 # place (removing it could orphan the still-sealed tree). The record removal is
 # GUARDED: on a host-managed profiles dir (a symlink) it is left to the host.

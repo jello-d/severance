@@ -19,7 +19,7 @@ for _t in "$_dir"/*.t; do
   _name=${_t##*/}; _name=${_name%.t}
   # `|| _trc=$?` and NOT `; _trc=$?`: under set -e a command substitution that
   # exits non-zero kills THIS script before the next line runs, so the first
-  # failing test would abort the runner -- silently, with no verdict for the
+  # failing test would abort the runner, silently, with no verdict for the
   # test that failed or any test after it. The first version of this loop did
   # exactly that, which is the bug it was written to catch.
   _trc=0

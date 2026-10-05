@@ -137,7 +137,7 @@ severance's CLI is the interface. A one-line hook calling it belongs with
 whoever owns the box; checking that hook belongs to whoever declared the seam.
 
 On a provisioned box the install change is a no-op: both were already deferred
-to the host. A STANDALONE box wires the git include itself -- `severance
+to the host. A STANDALONE box wires the git include itself; `severance
 install` prints the command.
 
 ## 9. `work` knows nothing about the box's shell framework

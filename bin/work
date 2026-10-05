@@ -1,6 +1,9 @@
 #!/bin/sh
 # work - enter a work PROFILE (enclave), or run one command in it.
 #
+# conventions: allow -- in the grammar below the dashes are work's OWN
+# end-of-options separator, dividing the profile from the command to run.
+# They are the syntax this file implements, not punctuation.
 #   work                        enter the sole (or default) enclave.
 #   work enter [profile]        enter, naming the enclave explicitly.
 #   work run [profile] -- CMD   run one command in that enclave and exit with
@@ -61,6 +64,8 @@ export SEVERANCE_SHARE
 # forwarded in WORK_PROFILE, and we re-parse a NORMALISED argv that this script
 # built itself, so the grammar is applied exactly once per invocation.
 usage() {
+  # conventions: allow -- work's own end-of-options separator, as in the
+  # grammar at the top of this file. It is what the user must TYPE.
   echo "usage: work [enter [profile]]" >&2
   echo "       work run [profile] -- CMD ..." >&2
   exit 2

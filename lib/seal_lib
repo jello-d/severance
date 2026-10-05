@@ -69,7 +69,7 @@ audit_repos() {
     repo=${g%/.git}
     # SKIP severance's own config root (work_dir/.config). That tree is TOOL
     # STATE this design put inside the seal on purpose, not source anyone
-    # placed across the boundary, and tools keep git-backed caches in it --
+    # placed across the boundary, and tools keep git-backed caches in it:
     # claude's plugin marketplaces clone a public repo there today, gemini and
     # codex plausibly tomorrow. Each would report as a personal repo in the
     # work tree and each would be wrong.
