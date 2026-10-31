@@ -26,7 +26,9 @@ sev_forget() {
   _r=$WC_RUNNER
   echo "severance: forgetting '$_profile' (runner '$_r')"
   sev_sudo_prime
-  _tear_down_runner "$_r"
+  _tear_down_runner "$_r" || {
+    echo "severance: '$_profile' NOT forgotten; the runner survives" >&2
+    return 1; }
 
   [ "$_purge" = 1 ] || return 0
   _purge_record "$_profile"
@@ -35,7 +37,9 @@ sev_forget() {
 # Tear down the runner. Remove the traverse ACL BEFORE userdel (while the name
 # still resolves), then the --user services, then the account + id ranges.
 # Every step tolerates an already-absent piece: this is a decommission, so
-# half-torn-down must converge rather than abort partway.
+# half-torn-down must converge rather than abort partway. What it must NOT do is
+# REPORT a piece gone that is not: the account is verified by asking `id`
+# afterwards, never inferred from userdel having been called.
 _tear_down_runner() {   # <runner>
   _r=$1
   if id "$_r" >/dev/null 2>&1; then
@@ -45,16 +49,62 @@ _tear_down_runner() {   # <runner>
       systemctl --user disable --now docker.service work-docker-sock.service \
       2>/dev/null || true
     sudo loginctl disable-linger "$_r" 2>/dev/null || true
-    sudo userdel -r "$_r" 2>/dev/null \
-      || sudo userdel "$_r" 2>/dev/null || true
+    _stop_user_manager "$_r" "$_ruid" || return 1
+    sudo userdel -r "$_r" 2>/dev/null || true
+    _account_gone "$_r" || return 1
     sudo sed -i "/^$_r:/d" /etc/subuid /etc/subgid 2>/dev/null || true
-    echo "  removed runner account $_r"
   else
     echo "  runner account $_r already absent"
   fi
   sudo rm -f "/etc/tmpfiles.d/$_r.conf"
-  sudo rm -rf "/run/$_r"
+  _remove_socket_dir "/run/$_r"
   echo "  runner torn down (wall + record left intact)"
+}
+
+# disable-linger stops the user manager ASYNCHRONOUSLY, and userdel refuses an
+# account that still owns a process. Measured on box B 2026-10-13: userdel ran
+# in the same second as disable-linger, refused, and the account survived a
+# report saying it was removed; the same userdel 4.5 minutes later succeeded.
+# So end the session and WAIT for the process table to empty.
+_stop_user_manager() {   # <runner> <uid>
+  sudo loginctl terminate-user "$1" 2>/dev/null || true
+  [ -n "${SEVERANCE_DRYRUN:-}" ] && return 0
+  _n=0
+  while _left=$(pgrep -u "$2" 2>/dev/null); do
+    _n=$((_n + 1))
+    if [ "$_n" -ge 30 ]; then
+      echo "severance: $1 still owns processes after 30s:" \
+        $_left >&2
+      echo "  userdel would refuse; NOT removing the account" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+# The account is gone only when `id` says so. userdel -r exits non-zero for
+# reasons that still delete the account (a missing mail spool), and zero is not
+# proof either, so its status is not the question.
+_account_gone() {   # <runner>
+  if [ -n "${SEVERANCE_DRYRUN:-}" ]; then
+    echo "  build-only: runner account $1 NOT removed"
+    return 0
+  fi
+  if id "$1" >/dev/null 2>&1; then
+    echo "severance: FAILED to remove runner account $1 (still in" \
+      "passwd)" >&2
+    return 1
+  fi
+  echo "  removed runner account $1"
+}
+
+# The relay socket's directory holds one socket, so remove exactly that and
+# then the directory: rmdir refuses anything unexpected instead of deleting it.
+_remove_socket_dir() {   # <dir>
+  sudo test -d "$1" || return 0
+  sudo rm -f "$1/docker.sock"
+  sudo rmdir "$1" \
+    || echo "severance: $1 not empty; left in place" >&2
 }
 
 # --purge: remove the record (unless host-managed), clear the default marker if

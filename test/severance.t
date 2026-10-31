@@ -378,12 +378,54 @@ fgt() { env -i PATH="$FB:/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$FP" \
   SEVERANCE_DRYRUN=1 "$SEV" forget "$@" 2>&1; }
 
 # default forget tears down the runner (logged) and LEAVES the record.
+# Build-only removes nothing, so it must not SAY it removed anything.
 out=$(fgt gone)
-echo "$out" | grep -q 'removed runner account g-run' \
-  || fail "forget: did not tear down the runner"
-echo "$out" | grep -q 'rm -rf /run/g-run' \
+echo "$out" | grep -q 'removed runner account' \
+  && fail "forget: build-only claimed an account it never removed"
+echo "$out" | grep -q 'build-only: runner account g-run NOT removed' \
+  || fail "forget: build-only did not say the account was left"
+echo "$out" | grep -q 'rmdir /run/g-run' \
   || fail "forget: did not clean the runner socket dir"
 [ -f "$FP/gone" ] || fail "forget (no --purge): removed the record"
+
+# The REAL path, through a stub sudo: the account is gone only when `id` says
+# so. LIVE on box B 2026-10-13: userdel refused (the user manager was still
+# exiting), forget printed "removed runner account", and the account survived.
+# FS_GONE is the stub's passwd: id answers "no such user" once it exists.
+RB=$T/rbin; mkdir -p "$RB"
+cat > "$RB/sudo" <<'EOF2'
+#!/bin/sh
+case $1 in
+  userdel) [ -n "$FS_DELETES" ] && : > "$FS_GONE" ;;
+  test)    exit 1 ;;
+esac
+exit 0
+EOF2
+cat > "$RB/id" <<'EOF2'
+#!/bin/sh
+[ "$1" = -u ]  && { echo 4242;   exit 0; }
+[ "$1" = -un ] && { echo tester; exit 0; }
+[ -e "$FS_GONE" ] && exit 1
+exit 0
+EOF2
+printf '#!/bin/sh\nexit 1\n' > "$RB/pgrep"
+printf '#!/bin/sh\nexit 0\n' > "$RB/setfacl"
+chmod +x "$RB"/*
+fgr() { env -i PATH="$RB:/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$FP" \
+  FS_GONE="$T/fs-gone" FS_DELETES="$1" "$SEV" forget gone 2>&1; }
+
+rc=0; out=$(fgr '') || rc=$?
+[ "$rc" != 0 ] || fail "forget: exited 0 with the runner account still there"
+echo "$out" | grep -q 'removed runner account' \
+  && fail "forget: reported a surviving account as removed"
+echo "$out" | grep -q 'FAILED to remove runner account g-run' \
+  || fail "forget: a surviving account was not named"
+
+rc=0; out=$(fgr yes) || rc=$?
+[ "$rc" = 0 ] || fail "forget: failed after userdel worked: $out"
+echo "$out" | grep -q 'removed runner account g-run' \
+  || fail "forget: a removed account was not reported"
+rm -f "$T/fs-gone"
 
 # --purge removes the record, keeps the survivor.
 fgt gone --purge >/dev/null 2>&1 || fail "forget --purge exited non-zero"
