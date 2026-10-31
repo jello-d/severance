@@ -40,7 +40,8 @@ fn() {   # <name>
 # Drive the named functions with a given environment.
 drive() {   # <env-assignments> <expression>
   for _f in _runner_vars _render_tmpfiles _render_relay_unit _has_subids \
-            _next_subid_block _has_traverse; do
+            _next_subid_block _has_traverse _uid_min _primary_group \
+            _ensure_account; do
     fn "$_f"
   done > "$T/fns"
   # A malformed extraction must fail LOUDLY, not silently define nothing.
@@ -154,6 +155,24 @@ drive 'RUNNER=demo-runner' "_has_subids $T/su" ||
 # as allocated when it is not, and skip the allocation.
 drive 'RUNNER=demo' "_has_subids $T/su" &&
   fail "_has_subids matched a PREFIX of another account"
+
+# --- _ensure_account: a NEW runner is a SYSTEM account ----------------------
+# Without --system it lands at UID_MIN or above, and systemd starts every
+# globally enabled user unit for it (box A's audio outage, 2026-10). sudo
+# is a function here, so the useradd is captured rather than run.
+out=$(drive 'RUNNER=sev-test-no-such-acct; RUNNER_HOME=/home/x; WC_GROUP=wg
+             WC_PROFILE=p; sudo() { echo "SUDO $*"; }' '_ensure_account')
+case $out in
+  *"SUDO useradd --system "*) ;;
+  *) fail "a new runner is not created as a system account: $out" ;;
+esac
+
+# --- _uid_min: where the system range ends ----------------------------------
+printf '# c\nUID_MIN\t\t\t 500\nUID_MAX 60000\n' > "$T/defs"
+out=$(drive "LOGIN_DEFS=$T/defs" '_uid_min')
+[ "$out" = 500 ] || fail "_uid_min misread login.defs: $out"
+out=$(drive "LOGIN_DEFS=$T/no-such-defs" '_uid_min')
+[ "$out" = 1000 ] || fail "_uid_min without login.defs: '$out', want 1000"
 
 # --- _has_traverse: the ACL that lets the runner reach into $HOME -----------
 # Real setfacl on a real directory, with no privilege needed for a dir we own,

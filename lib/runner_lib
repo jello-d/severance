@@ -16,6 +16,7 @@
 SUBUID=${SUBUID:-/etc/subuid}
 SUBGID=${SUBGID:-/etc/subgid}
 TMPFILES_DIR=${TMPFILES_DIR:-/etc/tmpfiles.d}
+LOGIN_DEFS=${LOGIN_DEFS:-/etc/login.defs}
 SYSTEMD_TMPFILES=${SYSTEMD_TMPFILES:-systemd-tmpfiles}
 RELAY_SRC=${SEVERANCE_RELAY_SRC:-$SEVERANCE_SHARE/runner/docker-sock.service}
 
@@ -38,6 +39,12 @@ _render_tmpfiles() {
 }
 
 _primary_group() { id -gn "$1" 2>/dev/null; }
+# The first uid a REGULAR user gets; below it is the system range. 1000 is
+# shadow's own default when login.defs does not say.
+_uid_min() {
+  awk '$1 == "UID_MIN" { v = $2 } END { print (v ? v : 1000) }' \
+    "$LOGIN_DEFS" 2>/dev/null || echo 1000
+}
 _has_subids() { grep -q "^$RUNNER:" "$1" 2>/dev/null; }
 _has_traverse() {
   getfacl -p "$HOME" 2>/dev/null | grep -q "^user:$RUNNER:.*x"
@@ -189,11 +196,17 @@ _deps_ok() {
 # Provision the CURRENT profile's runner (WC_* + _runner_vars already set).
 # The runner ACCOUNT: the profile group as its PRIMARY (login) group, which is
 # what makes newuidmap map it and what lets it reach work_dir at all.
+#
+# --system puts it below UID_MIN, where systemd stops treating it as a person.
+# manifest-runner was created without it (uid 1001), so its user manager
+# started every globally enabled user unit, PipeWire included, and on box A
+# 2026-10 that raced the human's audio stack for the ALSA devices and won.
+# `ConditionUser=@system` can only exclude an account by its uid RANGE.
 _ensure_account() {
   if id "$RUNNER" >/dev/null 2>&1; then
     echo "severance: user '$RUNNER' present"
   else
-    sudo useradd --create-home --home-dir "$RUNNER_HOME" \
+    sudo useradd --system --create-home --home-dir "$RUNNER_HOME" \
       --gid "$WC_GROUP" --shell /usr/sbin/nologin \
       --comment "rootless-docker runner for $WC_PROFILE" "$RUNNER"
     echo "severance: created '$RUNNER' ($RUNNER_HOME)"
@@ -277,6 +290,12 @@ sev_runner() {
 _runner_check_one() {
   if id "$RUNNER" >/dev/null 2>&1; then _ok "$RUNNER: user present"
   else _bad "$RUNNER: user missing"; return; fi
+  _ru=$(id -u "$RUNNER")
+  if [ "$_ru" -lt "$(_uid_min)" ]; then _ok "$RUNNER: system uid $_ru"
+  else
+    _warn "$RUNNER: uid $_ru in the REGULAR range (made before --system)"
+    _warn "  so it inherits every global user unit; forget + runner fixes"
+  fi
   if [ "$(_primary_group "$RUNNER" 2>/dev/null)" = "$WC_GROUP" ]; then
     _ok "$RUNNER: primary group '$WC_GROUP'"
   else _bad "$RUNNER: primary group not '$WC_GROUP' (newuidmap needs it)"; fi
