@@ -122,7 +122,9 @@ Provision the per-enclave rootless-docker runner. Privileged.
 Decommission a profile: tear down its runner (reversible). With
 .B \-\-purge
 also remove the record and regenerate the git fragment; the work tree is left
-sealed. Privileged.
+sealed. The group is removed too, but only once the work tree is gone and no
+other record or account uses it, since a freed gid is reissued to the next
+group created. Privileged.
 .TP
 .BR check " [" \-\-seal | \-\-runner ]
 Audit the live boundary; non-zero on drift. Bare checks both and validates the

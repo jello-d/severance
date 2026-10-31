@@ -7,8 +7,8 @@
 #
 # --purge also removes the record, clears the default marker if it named this
 # profile, and regenerates the git fragment for the survivors, but LEAVES the
-# work tree SEALED (the data is yours; reclaim it deliberately) and the GROUP in
-# place (removing it could orphan the still-sealed tree). The record removal is
+# work tree SEALED (the data is yours; reclaim it deliberately). The GROUP goes
+# only once the tree is gone (see _remove_group). The record removal is
 # GUARDED: on a host-managed profiles dir (a symlink) it is left to the host.
 sev_forget() {
   _profile= _purge=0
@@ -31,7 +31,48 @@ sev_forget() {
     return 1; }
 
   [ "$_purge" = 1 ] || return 0
+  _remove_group "$_profile" || return 1
   _purge_record "$_profile"
+}
+
+# --purge removes the GROUP too, but only once nothing can still carry its gid.
+# A freed id is handed out again by the next groupadd/useradd, so a group
+# deleted under a still-sealed tree gives that tree to whoever gets the number
+# next. So it stays while work_dir exists, or while another record or an
+# account still uses it, and each refusal says which.
+_remove_group() {   # <profile>
+  _g=$WC_GROUP _wd=$WC_DIR
+  if ! getent group "$_g" >/dev/null 2>&1; then
+    echo "  group $_g already absent"; return 0
+  fi
+  if [ -e "$_wd" ] || [ -L "$_wd" ]; then
+    echo "  group $_g kept: $_wd still exists and carries its gid"
+    return 0
+  fi
+  _gu=$(_group_users "$1" "$_g")
+  if [ -n "$_gu" ]; then
+    echo "  group $_g kept: still used by $_gu"; return 0
+  fi
+  sudo groupdel "$_g" 2>/dev/null || true
+  if [ -n "${SEVERANCE_DRYRUN:-}" ]; then
+    echo "  build-only: group $_g NOT removed"
+  elif getent group "$_g" >/dev/null 2>&1; then
+    echo "severance: FAILED to remove group $_g" >&2; return 1
+  else
+    echo "  removed group $_g"
+  fi
+}
+
+# Who else still uses <group>: other profile records, and accounts whose
+# PRIMARY group it is (a runner forget could not remove). Space-separated.
+# Call it in $(...): the wc_load per record clobbers WC_* in its own subshell.
+_group_users() {   # <profile> <group>
+  _gid=$(getent group "$2" | cut -d: -f3)
+  for _o in $(wc_profiles); do
+    [ "$_o" = "$1" ] && continue
+    wc_load "$_o" && [ "$WC_GROUP" = "$2" ] && printf 'profile:%s ' "$_o"
+  done
+  getent passwd | awk -F: -v g="$_gid" '$4 == g { printf "account:%s ", $1 }'
 }
 
 # Tear down the runner. Remove the traverse ACL BEFORE userdel (while the name
@@ -130,6 +171,10 @@ _purge_record() {   # <profile>
       echo "  regenerated the git fragment"
     fi
   fi
-  echo "severance: '$_profile' purged. The work tree is left SEALED;"
-  echo "  reclaim its data with: sudo chown -R $(id -un) $WC_DIR"
+  if [ -e "$WC_DIR" ]; then
+    echo "severance: '$_profile' purged. The work tree is left SEALED;"
+    echo "  reclaim its data with: sudo chown -R $(id -un) $WC_DIR"
+  else
+    echo "severance: '$_profile' purged."
+  fi
 }

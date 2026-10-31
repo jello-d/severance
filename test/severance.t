@@ -427,6 +427,63 @@ echo "$out" | grep -q 'removed runner account g-run' \
   || fail "forget: a removed account was not reported"
 rm -f "$T/fs-gone"
 
+# --purge removes the GROUP only once nothing can still carry its gid: a freed
+# gid is reissued by the next groupadd, so a group deleted under a live tree
+# hands that tree to whichever group is created next.
+cat > "$RB/getent" <<'EOF2'
+#!/bin/sh
+case $1 in
+  group)  [ -e "$FS_GGONE" ] && exit 2; echo "$2:x:4300:" ;;
+  passwd) [ -n "$FS_PRIMARY" ] && echo "$FS_PRIMARY:x:4301:4300::/:/bin/false"
+          exit 0 ;;
+esac
+EOF2
+cat > "$RB/sudo" <<'EOF2'
+#!/bin/sh
+case $1 in
+  groupdel) [ -n "$FS_DELETES" ] && : > "$FS_GGONE" ;;
+  test)     exit 1 ;;
+esac
+exit 0
+EOF2
+chmod +x "$RB/getent" "$RB/sudo"
+GP=$T/gp; mkdir -p "$GP"
+fgp() {   # <deletes?> <primary-account> ; purges profile gp (group gpg)
+  rm -f "$GP/gp" "$GP/twin"; : > "$T/fs-gone"; rm -f "$T/fs-ggone"
+  printf 'work_group=gpg\nwork_dir=%s\nrunner=gp-run\n' "$T/wd" > "$GP/gp"
+  env -i PATH="$RB:/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$GP" \
+    FS_GONE="$T/fs-gone" FS_GGONE="$T/fs-ggone" FS_DELETES="$1" \
+    FS_PRIMARY="$2" "$SEV" forget gp --purge 2>&1
+}
+mkdir -p "$T/wd"
+out=$(fgp yes '') || fail "forget --purge (tree present) failed: $out"
+echo "$out" | grep -q "group gpg kept: $T/wd still exists" \
+  || fail "forget --purge: removed a group its tree still carries"
+rmdir "$T/wd"
+out=$(fgp yes run-acct) || fail "forget --purge (account) failed: $out"
+echo "$out" | grep -q 'group gpg kept: still used by account:run-acct' \
+  || fail "forget --purge: removed a group an account still has as primary"
+rc=0; : > "$T/fs-gone"; rm -f "$T/fs-ggone"
+printf 'work_group=gpg\nwork_dir=/w/x\n' > "$GP/twin"
+printf 'work_group=gpg\nwork_dir=%s\nrunner=gp-run\n' "$T/wd" > "$GP/gp"
+out=$(env -i PATH="$RB:/usr/bin:/bin" HOME="$T" WC_PROFILES_DIR="$GP" \
+  FS_GONE="$T/fs-gone" FS_GGONE="$T/fs-ggone" FS_DELETES=yes \
+  "$SEV" forget gp --purge 2>&1) || rc=$?
+[ "$rc" = 0 ] || fail "forget --purge (shared group) failed: $out"
+echo "$out" | grep -q 'group gpg kept: still used by profile:twin' \
+  || fail "forget --purge: removed a group another record still names"
+out=$(fgp yes '') || fail "forget --purge (clear) failed: $out"
+echo "$out" | grep -q 'removed group gpg' \
+  || fail "forget --purge: did not remove an unused group"
+echo "$out" | grep -q 'left SEALED' \
+  && fail "forget --purge: called an absent tree sealed"
+rc=0; out=$(fgp '' '') || rc=$?
+[ "$rc" != 0 ] || fail "forget --purge: exited 0 with the group still there"
+echo "$out" | grep -q 'FAILED to remove group gpg' \
+  || fail "forget --purge: a surviving group was not named"
+[ -f "$GP/gp" ] || fail "forget --purge: dropped the record of a failed purge"
+rm -f "$T/fs-gone"
+
 # --purge removes the record, keeps the survivor.
 fgt gone --purge >/dev/null 2>&1 || fail "forget --purge exited non-zero"
 [ -e "$FP/gone" ] && fail "forget --purge: left the record"

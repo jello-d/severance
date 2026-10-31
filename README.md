@@ -80,6 +80,12 @@ Health, and tearing one down:
     severance forget work               # tear down a profile's runner
     severance forget work --purge       # ...also drop the record (tree stays)
 
+`--purge` never deletes the work tree. It removes the group only once that tree
+is gone and nothing else uses the group: a freed gid is handed to the next
+group created, so deleting it under a live tree would give the tree away.
+Retiring an enclave completely is therefore: move out what you keep, delete
+the tree (`sudo rm -rf` it, by its literal path), then `forget --purge`.
+
 ## Profile record
 
 `~/.config/severance/profiles/<name>`, one `key=value` per line:
