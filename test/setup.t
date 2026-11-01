@@ -51,6 +51,7 @@ done
 for _f in bin/severance bin/work lib/work-context_lib share/tools \
           man/man1/severance.1 share/units/severance-dockerd@.service \
           libexec/work-session libexec/severance-display \
+          libexec/severance-share-chooser \
           share/units/severance-display@.service libexec/severance-notify \
           share/units/severance-notify-owner@.service \
           share/units/severance-notify-enclave@.service; do

@@ -170,6 +170,7 @@ _payload_stage() {
             share/units/severance-dockerd@.service libexec/work-session \
             share/units/severance-display@.service \
             libexec/severance-display libexec/severance-notify \
+            libexec/severance-share-chooser \
             share/units/severance-notify-owner@.service \
             share/units/severance-notify-enclave@.service; do
     if [ ! -e "$_ps_new/$_r" ]; then

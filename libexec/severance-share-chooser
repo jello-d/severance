@@ -1,0 +1,118 @@
+#!/usr/bin/python3 -I
+"""severance-share-chooser: pick which enclave window to share.
+
+The chooser an ENCLAVE's xdg-desktop-portal-wlr runs for screen sharing
+(its config names this as a `dmenu` chooser). The portal writes one target
+per line on stdin, `Monitor: ...` or `Window: <title> (<app id>)`, and
+takes the line printed on stdout as the choice; printing nothing declines.
+
+ONLY WINDOWS ARE OFFERED. An enclave may capture its own windows and never
+a whole output (a screen holds personal windows), so the compositor refuses
+an output, and offering one would only produce a share that fails.
+
+AN ORDINARY WINDOW, not an overlay: an enclave gets no layer-shell, so the
+usual pickers (slurp, wofi) cannot run, and as a normal toplevel this window
+carries the enclave's mark, which is how the person sees which side asks.
+An unanswered prompt DECLINES after SEVERANCE_CHOOSER_TIMEOUT seconds
+(default 120), rather than leaving the portal waiting forever.
+
+`--candidates` prints the lines that would be offered and exits, with no
+display needed (for tests).
+"""
+
+import os
+import sys
+
+PREFIX = "Window: "
+
+
+def candidates(lines):
+    return [ln for ln in (x.rstrip("\n") for x in lines)
+            if ln.startswith(PREFIX)]
+
+
+def choose(cands, enclave, timeout):
+    import gi
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk, GLib
+
+    # A plain window and its own loop, not a Gtk.Application: that would
+    # register on the session bus, and a one-shot prompt has no use for it.
+    result = {"line": ""}
+    loop = GLib.MainLoop()
+
+    def build():
+        win = Gtk.Window()
+        win.set_title("Share a window from %s" % enclave)
+        win.set_default_size(460, 320)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + side)(12)
+        if not cands:
+            box.append(Gtk.Label(
+                label="%s has no window that can be shared." % enclave))
+        lst = Gtk.ListBox()
+        lst.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        for c in cands:
+            row = Gtk.Label(label=c[len(PREFIX):], xalign=0)
+            row.set_margin_top(4)
+            row.set_margin_bottom(4)
+            lst.append(row)
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.set_child(lst)
+        if cands:
+            box.append(scroll)
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancel")
+        share = Gtk.Button(label="Share")
+        share.set_sensitive(False)
+        buttons.append(cancel)
+        if cands:
+            buttons.append(share)
+        box.append(buttons)
+        win.set_child(box)
+
+        def done(line):
+            if "done" in result:      # a timeout after a click, say
+                return
+            result["done"] = True
+            result["line"] = line
+            win.destroy()
+            loop.quit()
+
+        lst.connect("row-selected",
+                    lambda _l, row: share.set_sensitive(row is not None))
+        lst.connect("row-activated",
+                    lambda _l, row: done(cands[row.get_index()]))
+        share.connect("clicked", lambda _b: done(
+            cands[lst.get_selected_row().get_index()]))
+        cancel.connect("clicked", lambda _b: done(""))
+        win.connect("close-request", lambda _w: done("") or False)
+        GLib.timeout_add_seconds(timeout, lambda: done("") or False)
+        win.present()
+
+    build()
+    loop.run()
+    return result["line"]
+
+
+def main(argv):
+    cands = candidates(sys.stdin)
+    if argv[1:] == ["--candidates"]:
+        for c in cands:
+            print(c)
+        return 0
+    enclave = os.environ.get("SEVERANCE_ENCLAVE", "this enclave")
+    try:
+        timeout = max(1, int(os.environ.get("SEVERANCE_CHOOSER_TIMEOUT",
+                                            "120")))
+    except ValueError:
+        timeout = 120
+    line = choose(cands, enclave, timeout)
+    if line:
+        print(line, flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -173,6 +173,7 @@ _pv_provision_one() {
   # other order starts it without the enclave's environment. Measured.
   _pv_share_dir || return 1
   _pv_environment || return 1
+  _pv_portal || return 1
   _pv_linger || return 1
   _pv_docker || return 1
   _pv_user_units || return 1
@@ -285,23 +286,58 @@ _pv_render_env() {
   return 0
 }
 _pv_environment() {
-  _pv_ed=$EN_HOME/.config/environment.d
+  _pv_account_file .config/environment.d 50-severance.conf _pv_render_env ||
+    return 1
+  [ "$_pv_wrote" = 1 ] || return 0
+  _pv_reload_env
+}
+
+# Write one file of severance-derived configuration into the enclave's home,
+# AS THE ACCOUNT, and read it back as the account to compare: the directory
+# is the enclave's, and root writing into a directory its owner controls can
+# be steered by a planted symlink to any file on the box. Sets _pv_wrote.
+_pv_account_file() {   # <dir under home> <file> <render function>
+  _pv_wrote=0
+  _pv_ed=$EN_HOME/$1
   _pv_t=$(mktemp) || return 1
-  _pv_render_env > "$_pv_t"
-  # Read back as the account too, for the same reason.
+  "$3" > "$_pv_t"
   if [ -z "${SEVERANCE_DRYRUN:-}" ] &&
-     runuser -u "$EN_ACCOUNT" -- cat "$_pv_ed/50-severance.conf" 2>/dev/null |
+     runuser -u "$EN_ACCOUNT" -- cat "$_pv_ed/$2" 2>/dev/null |
        cmp -s "$_pv_t" -; then
     rm -f "$_pv_t"; return 0
   fi
   chmod 0644 "$_pv_t"
   _pv_do runuser -u "$EN_ACCOUNT" -- sh -c 'mkdir -p "$1" &&
-    cat > "$1/50-severance.conf.new" &&
-    mv -f "$1/50-severance.conf.new" "$1/50-severance.conf"' _ "$_pv_ed" \
+    cat > "$1/$2.new" && mv -f "$1/$2.new" "$1/$2"' _ "$_pv_ed" "$2" \
     < "$_pv_t" || { rm -f "$_pv_t"; return 1; }
   rm -f "$_pv_t"
-  echo "severance: wrote $_pv_ed/50-severance.conf"
-  _pv_reload_env
+  _pv_wrote=1
+  echo "severance: wrote $_pv_ed/$2"
+}
+
+# The enclave's screen-share PORTAL: sharing goes to the wlroots portal, and
+# its chooser is this install's severance-share-chooser (an ordinary window,
+# windows only), because the usual pickers are overlays an enclave may not
+# open. Everything else goes to the gtk portal. Both name THIS install, so
+# they are rendered, not shipped.
+_pv_render_portals() {
+  echo "# Written by severance for enclave $EN_NAME; re-written on every"
+  echo "# provision."
+  echo "[preferred]"
+  echo "default=gtk"
+  echo "org.freedesktop.impl.portal.ScreenCast=wlr"
+}
+_pv_render_xdpw() {
+  echo "# Written by severance for enclave $EN_NAME; re-written on every"
+  echo "# provision."
+  echo "[screencast]"
+  echo "chooser_type=dmenu"
+  echo "chooser_cmd=${SEVERANCE_SELF%/bin/*}/libexec/severance-share-chooser"
+}
+_pv_portal() {
+  _pv_account_file .config/xdg-desktop-portal portals.conf \
+    _pv_render_portals || return 1
+  _pv_account_file .config/xdg-desktop-portal-wlr config _pv_render_xdpw
 }
 
 # A RUNNING manager keeps the environment it started with until it reloads,
@@ -385,6 +421,13 @@ _pv_check_share() {
        "$EN_HOME/.config/environment.d/50-severance.conf"; then
     _ok "environment.d current"
   else _bad "environment.d missing or stale (re-run provision)"; fi
+  [ "$(id -u)" = 0 ] || return 0
+  if _pv_render_portals | cmp -s - \
+       "$EN_HOME/.config/xdg-desktop-portal/portals.conf" &&
+     _pv_render_xdpw | cmp -s - \
+       "$EN_HOME/.config/xdg-desktop-portal-wlr/config"; then
+    _ok "screen-share portal config current"
+  else _bad "screen-share portal config missing or stale"; fi
 }
 
 # --- forget: retire an enclave, verified --------------------------------------

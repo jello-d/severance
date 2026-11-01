@@ -126,7 +126,13 @@ LOGIN user's side; the enclave only ever connects.
   which provision renders for its own install, places root-owned and
   enables globally; an ExecCondition lets only the owner run it. Proven
   against a private headless wayfire: a client on the socket sees exactly
-  the allowlist. UNTIL THE
+  the allowlist. SCREEN SHARING: provision writes the enclave's portal
+  config (sharing to the wlroots portal, the rest to gtk) naming
+  libexec/severance-share-chooser, an ORDINARY window (an enclave gets no
+  overlays, so the usual pickers cannot run) that offers only the
+  enclave's windows and declines when unanswered. STILL MISSING: frames
+  travel over PipeWire, and an enclave has none (the audio gate keeps it
+  off system accounts); how it gets a video-only one is open. UNTIL THE
   COMPOSITOR SUPPORTS THE ALLOWLIST, ENCLAVES GET NO DISPLAY AT ALL; there is
   no interim "open the socket" fallback.
 - AUDIO: one pulse address for the enclave, with ordinary access. The

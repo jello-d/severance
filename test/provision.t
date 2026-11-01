@@ -174,6 +174,11 @@ want "no 'nosuch' group on this box" "a missing device group was not named"
 want "$T/tmpfiles/severance-newe.conf" "the share dir is not declared"
 want "dry-run: runuser -u alice-newe" \
   "environment.d is not written AS THE ACCOUNT"
+# The screen-share portal's config, also written as the account.
+want "/home/alice-newe/.config/xdg-desktop-portal portals.conf" \
+  "the portal routing is not written"
+want "/home/alice-newe/.config/xdg-desktop-portal-wlr config" \
+  "the wlroots portal's chooser config is not written"
 # ORDER: linger starts the user manager at once and a manager reads
 # environment.d when it starts, so the file must exist before linger is on.
 # The other order was measured live: a session with no enclave environment.
@@ -275,6 +280,15 @@ er=$(UNIT_ARG=severance-notify-enclave@.service; export UNIT_ARG
   render acme _pv_test_render)
 printf '%s\n' "$er" | grep -qF 'test "$SEVERANCE_ENCLAVE" = "%i"' ||
   fail "the enclave's relay end is not limited to that enclave's account"
+xd=$(render acme _pv_render_xdpw)
+printf '%s\n' "$xd" | grep -qx "chooser_type=dmenu" ||
+  fail "the portal chooser is not a dmenu chooser: $xd"
+printf '%s\n' "$xd" | grep -qx \
+  "chooser_cmd=$HERE/libexec/severance-share-chooser" ||
+  fail "the portal does not run THIS install's chooser: $xd"
+render acme _pv_render_portals |
+  grep -qx "org.freedesktop.impl.portal.ScreenCast=wlr" ||
+  fail "screen sharing is not routed to the wlroots portal"
 env_out=$(render acme _pv_render_env)
 for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
          PULSE_SERVER=unix:/run/severance/acme/pulse \
