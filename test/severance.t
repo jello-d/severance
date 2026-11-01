@@ -271,8 +271,12 @@ run_r >/dev/null 2>&1 || fail "runner check drifted after healing every knob"
 # A valet-key stub so nothing reaches a real one; git is real (via PATH).
 IB=$T/ibin; mkdir -p "$IB"
 printf '#!/bin/sh\nexit 0\n' > "$IB/valet-key"; chmod +x "$IB/valet-key"
+# SEVERANCE_SHARED_BIN is pinned to a dir that holds nothing: on a box
+# where severance IS published in /usr/local/bin, an unpinned run would
+# (correctly) not link it, and this case would be testing the box.
 inst() {   # <home> <verb>
-  env -i PATH="$IB:/usr/bin:/bin" HOME="$1" "$SEV" "$2"
+  env -i PATH="$IB:/usr/bin:/bin" HOME="$1" \
+    SEVERANCE_SHARED_BIN="$T/no-shared-bin" "$SEV" "$2"
 }
 gget() {   # <home> -> the global include.path values
   env -i PATH="$IB:/usr/bin:/bin" HOME="$1" \

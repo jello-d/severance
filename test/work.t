@@ -223,9 +223,12 @@ printf 'owner=%s\n' "$ME" > "$T/enclaves/gamma"
 rc=0; out=$(work enter gamma </dev/null 2>&1) || rc=$?
 case "$rc $out" in "1 "*"not provisioned"*) ;; *) fail "gamma: $rc $out" ;;
 esac
-# Without the seam the REAL shared install is required (absent here).
-unset SSP
+# A shared install that is not there is refused by name. Pointed at a dir
+# that cannot exist, not at the real /opt/severance, which a provisioned box
+# HAS (this case once read the box and broke the day it was published).
+SSP=$T/no-shared-install
 rc=0; out=$(work enter acme </dev/null 2>&1) || rc=$?
+unset SSP
 case "$rc $out" in "1 "*"shared install is missing"*) ;;
   *) fail "no shared install: $rc $out" ;; esac
 
