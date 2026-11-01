@@ -106,6 +106,7 @@ Instead each enclave gets its own directory of narrowed sockets:
     /run/severance/<enclave>/          <login-user>:<account> 0710
         wayland-0     a security-context display socket (restricted)
         pulse         an audio socket for this enclave only
+        pipewire-0    a PipeWire socket for this enclave only (video)
         relay         the notification relay's login-user end
 
 0710 with the ACCOUNT's own group lets the enclave traverse to a socket it
@@ -130,14 +131,34 @@ LOGIN user's side; the enclave only ever connects.
   config (sharing to the wlroots portal, the rest to gtk) naming
   libexec/severance-share-chooser, an ORDINARY window (an enclave gets no
   overlays, so the usual pickers cannot run) that offers only the
-  enclave's windows and declines when unanswered. STILL MISSING: frames
-  travel over PipeWire, and an enclave has none (the audio gate keeps it
-  off system accounts); how it gets a video-only one is open. UNTIL THE
+  enclave's windows and declines when unanswered. Frames travel over
+  PipeWire: see VIDEO, below. UNTIL THE
   COMPOSITOR SUPPORTS THE ALLOWLIST, ENCLAVES GET NO DISPLAY AT ALL; there is
   no interim "open the socket" fallback.
 - AUDIO: one pulse address for the enclave, with ordinary access. The
   socket existing is the gate. Narrower audio (no capture of the login
   user's playback) is proven possible and deliberately deferred.
+- VIDEO: the login user's ONE PipeWire also listens on `pipewire-0`,
+  and every client connecting there carries the socket's property
+  `pipewire.client.access = "severance-<enclave>"`. A WirePlumber script
+  shipped here (share/wireplumber: the script and the fragment that loads
+  it, both placed into the login user's WirePlumber by the integrator)
+  gives such a client the core, itself, the factories and EVERYTHING made
+  by clients of the SAME enclave, and nothing else: none of the login
+  user's objects and none of another enclave's. With the script absent the
+  stock rules know no such tag and grant nothing, so it fails closed.
+  Visibility is the whole control for video: an enclave cannot read the
+  login user's source even naming it by serial, and the login user's side
+  cannot be linked to an enclave node either. The enclave's environment
+  carries `PIPEWIRE_REMOTE`, so its portal publishes the screen-share
+  stream there and its browser reads it there. Audio does NOT use this
+  socket: playing sound needs the login user's sinks visible, and a
+  visible sink exposes its monitor, so audio keeps the pulse socket.
+  BUILT AND TESTED: test/pipewire-access.t runs a private PipeWire and a
+  stock WirePlumber with the shipped files, two enclaves and an owner
+  source. The sockets themselves are the integrator's: they must be added
+  to a full render of the login user's `pipewire.conf`, since PipeWire
+  does not merge a drop-in into the native protocol module's arguments.
 - NOTIFICATIONS: see the relay, below.
 
 ## The notification relay (owned here)
@@ -267,7 +288,7 @@ in the user install. Enclave-side helpers run from /opt/severance too.
                               name, account, uid, home, share dir.
                               uid is `-` until the account exists.
     relay marker              NEW. App name = enclave name (see above)
-    share dir layout          NEW. Names of the three sockets
+    share dir layout          NEW. Names of the four sockets
     the WC_* reader           RETIRED at the contract step, below
 
 Each change is a `docs/breaking-changes.md` entry.

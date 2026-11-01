@@ -292,6 +292,7 @@ render acme _pv_render_portals |
 env_out=$(render acme _pv_render_env)
 for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
          PULSE_SERVER=unix:/run/severance/acme/pulse \
+         PIPEWIRE_REMOTE=/run/severance/acme/pipewire-0 \
   DOCKER_HOST=unix:///run/severance-docker-alice-acme/docker.sock; do
   printf '%s\n' "$env_out" | grep -qx "$l" || fail "environment lacks $l"
 done

@@ -54,7 +54,9 @@ for _f in bin/severance bin/work lib/work-context_lib share/tools \
           libexec/severance-share-chooser \
           share/units/severance-display@.service libexec/severance-notify \
           share/units/severance-notify-owner@.service \
-          share/units/severance-notify-enclave@.service; do
+          share/units/severance-notify-enclave@.service \
+          share/wireplumber/scripts/severance-access.lua \
+          share/wireplumber/wireplumber.conf.d/50-severance-access.conf; do
   [ -e "$PAY/$_f" ] || fail "payload is missing $_f"
 done
 # COPIES, not links into the source. bin/severance is the one that matters

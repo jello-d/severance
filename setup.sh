@@ -172,7 +172,9 @@ _payload_stage() {
             libexec/severance-display libexec/severance-notify \
             libexec/severance-share-chooser \
             share/units/severance-notify-owner@.service \
-            share/units/severance-notify-enclave@.service; do
+            share/units/severance-notify-enclave@.service \
+            share/wireplumber/scripts/severance-access.lua \
+            share/wireplumber/wireplumber.conf.d/50-severance-access.conf; do
     if [ ! -e "$_ps_new/$_r" ]; then
       bad "staged payload is missing $_r"
       rm -rf -- "$_ps_new"

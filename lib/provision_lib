@@ -281,6 +281,7 @@ _pv_render_env() {
   echo "SEVERANCE_ENCLAVE=$EN_NAME"
   echo "WAYLAND_DISPLAY=$EN_SHARE/wayland-0"
   echo "PULSE_SERVER=unix:$EN_SHARE/pulse"
+  echo "PIPEWIRE_REMOTE=$EN_SHARE/pipewire-0"
   [ "$EN_DOCKER" = yes ] &&
     echo "DOCKER_HOST=unix:///run/severance-docker-$EN_ACCOUNT/docker.sock"
   return 0
