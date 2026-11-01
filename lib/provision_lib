@@ -119,6 +119,9 @@ SUBUID=${SUBUID:-/etc/subuid}
 SUBGID=${SUBGID:-/etc/subgid}
 TMPFILES_DIR=${TMPFILES_DIR:-/etc/tmpfiles.d}
 LINGER_DIR=${LINGER_DIR:-/var/lib/systemd/linger}
+SYSTEMD_UNIT_DIR=${SYSTEMD_UNIT_DIR:-/etc/systemd/system}
+DOCKERD_ROOTLESS=${DOCKERD_ROOTLESS:-/usr/bin/dockerd-rootless.sh}
+_PV_UNIT=severance-dockerd@.service
 
 _pv_do() {
   if [ -n "${SEVERANCE_DRYRUN:-}" ]; then echo "dry-run: $*"; return 0; fi
@@ -158,6 +161,7 @@ _pv_provision_one() {
   _pv_share_dir || return 1
   _pv_environment || return 1
   _pv_linger || return 1
+  _pv_docker || return 1
 }
 
 # The account: system range, its own user-private group, the owner's shell
@@ -247,6 +251,9 @@ _pv_render_env() {
   echo "SEVERANCE_ENCLAVE=$EN_NAME"
   echo "WAYLAND_DISPLAY=$EN_SHARE/wayland-0"
   echo "PULSE_SERVER=unix:$EN_SHARE/pulse"
+  [ "$EN_DOCKER" = yes ] &&
+    echo "DOCKER_HOST=unix:///run/severance-docker-$EN_ACCOUNT/docker.sock"
+  return 0
 }
 _pv_environment() {
   _pv_ed=$EN_HOME/.config/environment.d
@@ -296,6 +303,7 @@ _pv_check() {   # [name...]
     _pv_check_account
     _pv_check_ids
     _pv_check_share
+    _pv_check_docker
   done
   return "$REPORT_RC"
 }
@@ -352,6 +360,10 @@ _pv_forget() {   # <name> <purge 0|1>
   en_load "$1" || return 1
   echo "severance: forgetting enclave '$1' (account $EN_ACCOUNT)"
   if [ "$EN_UID" != - ]; then
+    # Its docker first: a system unit running AS the account is one more
+    # owner of its processes, and userdel refuses while any survive.
+    _pv_do systemctl disable --now "severance-dockerd@$EN_ACCOUNT.service" \
+      2>/dev/null || :
     _pv_stop_session || return 1
     if [ "$2" = 1 ]; then _pv_do userdel -r "$EN_ACCOUNT" 2>/dev/null || :
     else _pv_retire_home && { _pv_do userdel "$EN_ACCOUNT" || :; }
@@ -421,4 +433,61 @@ _pv_unshare() {
   [ -d "$EN_SHARE" ] || return 0
   _pv_do rm -f "$EN_SHARE/wayland-0" "$EN_SHARE/pulse" "$EN_SHARE/relay"
   _pv_do rmdir "$EN_SHARE" || echo "  $EN_SHARE not empty; left" >&2
+}
+
+# --- docker: the enclave's own rootless daemon, a SYSTEM unit instance -------
+# The template ships in this package's share/ and is copied into the system
+# unit dir by root, from the root-owned shared install, only when it
+# differs. The instance name is the account. docker=no turns an enabled
+# instance OFF, so the record stays the one place that decides.
+_pv_docker() {
+  _pv_inst=severance-dockerd@$EN_ACCOUNT.service
+  if [ "$EN_DOCKER" != yes ]; then
+    systemctl is-enabled --quiet "$_pv_inst" 2>/dev/null || return 0
+    _pv_do systemctl disable --now "$_pv_inst" || return 1
+    echo "severance: $EN_ACCOUNT docker off (docker=no)"
+    return 0
+  fi
+  [ -x "$DOCKERD_ROOTLESS" ] || {
+    echo "severance: $DOCKERD_ROOTLESS missing (docker-ce-rootless-extras)" \
+      >&2; return 1; }
+  _pv_unit_changed=0
+  _pv_unit_file || return 1
+  if systemctl is-enabled --quiet "$_pv_inst" 2>/dev/null &&
+     systemctl is-active --quiet "$_pv_inst" 2>/dev/null; then
+    [ "$_pv_unit_changed" = 1 ] || return 0
+    _pv_do systemctl try-restart "$_pv_inst" || return 1
+    echo "severance: $EN_ACCOUNT docker restarted (its unit changed)"
+    return 0
+  fi
+  _pv_do systemctl enable --now "$_pv_inst" || return 1
+  echo "severance: $EN_ACCOUNT docker up ($_pv_inst)"
+}
+
+_pv_unit_file() {
+  _pv_src=$SEVERANCE_SHARE/units/$_PV_UNIT
+  _pv_dst=$SYSTEMD_UNIT_DIR/$_PV_UNIT
+  [ -r "$_pv_src" ] || {
+    echo "severance: $_pv_src missing from the install" >&2; return 1; }
+  cmp -s "$_pv_src" "$_pv_dst" && return 0
+  _pv_do install -m 0644 -o root -g root "$_pv_src" "$_pv_dst" || return 1
+  _pv_do systemctl daemon-reload || return 1
+  _pv_unit_changed=1
+  echo "severance: installed $_pv_dst"
+}
+
+_pv_check_docker() {
+  _pv_inst=severance-dockerd@$EN_ACCOUNT.service
+  if [ "$EN_DOCKER" != yes ]; then
+    if systemctl is-enabled --quiet "$_pv_inst" 2>/dev/null; then
+      _bad "$_pv_inst enabled, but the record says docker=no"
+    else _ok "docker off (docker=no)"; fi
+    return 0
+  fi
+  if cmp -s "$SEVERANCE_SHARE/units/$_PV_UNIT" "$SYSTEMD_UNIT_DIR/$_PV_UNIT"
+  then _ok "$_PV_UNIT current"
+  else _bad "$_PV_UNIT missing or stale in $SYSTEMD_UNIT_DIR"; fi
+  if systemctl is-active --quiet "$_pv_inst" 2>/dev/null; then
+    _ok "$_pv_inst active"
+  else _bad "$_pv_inst not active"; fi
 }

@@ -119,12 +119,16 @@ esac
 EOF2
 printf 'carol:100000:65536\nother:165536:65536\n' > "$T/subuid"
 cp "$T/subuid" "$T/subgid"
-mkdir -p "$T/linger" "$T/tmpfiles"
+mkdir -p "$T/linger" "$T/tmpfiles" "$T/units"
+printf '#!/bin/sh\n' > "$T/dockerd-rootless.sh"
+chmod +x "$T/dockerd-rootless.sh"
 printf 'UID_MIN 1000\n' > "$T/login.defs"
 prov() {
   env SEVERANCE_ENCLAVES_DIR="$ED" SEVERANCE_DRYRUN=1 TMPDIR="$T/tmp" \
     SUBUID="$T/subuid" SUBGID="$T/subgid" LINGER_DIR="$T/linger" \
     TMPFILES_DIR="$T/tmpfiles" LOGIN_DEFS="$T/login.defs" \
+    SYSTEMD_UNIT_DIR="$T/units" \
+    DOCKERD_ROOTLESS="${DRL:-$T/dockerd-rootless.sh}" \
     PATH="$T/bin:$PATH" sh "$SEV" enclave provision "$@"
 }
 for e in newe reg grp; do printf 'owner=alice\n' > "$ED/$e"; done
@@ -153,6 +157,21 @@ _ew=$(printf '%s\n' "$out" | grep -n 'dry-run: runuser -u alice-newe' |
 _lg=$(printf '%s\n' "$out" | grep -n 'enable-linger alice-newe' | cut -d: -f1)
 [ "$_ew" -lt "$_lg" ] ||
   fail "linger (line $_lg) is enabled before environment.d (line $_ew)"
+# DOCKER: the template installed from the package's own share/, the
+# instance named for the account, and only after linger and the subids.
+# (the source is the package's share/, however its path is spelled)
+want "share/units/severance-dockerd@.service \
+$T/units/severance-dockerd@.service" "the docker unit template is not installed"
+want "dry-run: systemctl daemon-reload" "systemd is not reloaded for the unit"
+want "dry-run: systemctl enable --now severance-dockerd@alice-newe.service" \
+  "the enclave's docker instance is not enabled"
+_dk=$(printf '%s\n' "$out" | grep -n 'enable --now severance-dockerd' |
+  cut -d: -f1)
+[ "$_dk" -gt "$_lg" ] || fail "docker (line $_dk) starts before linger"
+# No rootless extras: refused by name rather than a unit that cannot start.
+rc=0; DRL=$T/none prov newe >/dev/null 2>"$T/err" || rc=$?
+[ "$rc" = 1 ] && grep -q 'rootless-extras' "$T/err" ||
+  fail "a box without rootless docker was not refused: $(cat "$T/err")"
 
 # Already provisioned: nothing is created or allocated again.
 grep -q '^alice-acme:' "$T/subuid" || {
@@ -163,7 +182,10 @@ grep -q '^alice-acme:' "$T/subuid" || {
 # followed by a reload, or it waits for a reboot.
 cat > "$T/bin/systemctl" <<'EOF2'
 #!/bin/sh
-[ "$1 $2 $3" = "is-active --quiet user@990.service" ] && exit 0
+case "$1 $2 $3" in
+  "is-active --quiet user@990.service") exit 0 ;;
+  "is-enabled --quiet severance-dockerd@alice-off.service") exit 0 ;;
+esac
 exit 3
 EOF2
 chmod +x "$T/bin/systemctl"
@@ -182,6 +204,11 @@ nope() {   # <enclave> <stderr must say> <why>
 nope reg "a REGULAR account" "a regular-range account of that name"
 nope grp "not its own" "an account whose primary group is shared"
 nope orphan "is not an account here" "an owner with no account"
+# docker=no turns an ENABLED instance off: the record decides.
+printf 'owner=alice\ndocker=no\n' > "$ED/off"
+out=$(prov off 2>&1) || :
+want "dry-run: systemctl disable --now severance-dockerd@alice-off.service" \
+  "docker=no left an enabled docker instance running"
 rm -f "$ED/newe" "$ED/reg" "$ED/grp" "$ED/orphan"
 
 # --- the renders: who may reach the share dir, and what the session sees ------
@@ -197,9 +224,25 @@ render() {   # <enclave> <function>
   fail "share parent line wrong"
 env_out=$(render acme _pv_render_env)
 for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
-         PULSE_SERVER=unix:/run/severance/acme/pulse; do
+         PULSE_SERVER=unix:/run/severance/acme/pulse \
+  DOCKER_HOST=unix:///run/severance-docker-alice-acme/docker.sock; do
   printf '%s\n' "$env_out" | grep -qx "$l" || fail "environment lacks $l"
 done
+render off _pv_render_env | grep -q DOCKER_HOST &&
+  fail "a docker=no enclave's environment names a DOCKER_HOST"
+rm -f "$ED/off"
+
+# The TEMPLATE itself: who it runs as, and where its socket lives. %i, the
+# RAW instance, because %I would turn the '-' in alice-acme into a '/'.
+U=$HERE/share/units/severance-dockerd@.service
+for l in 'User=%i' 'Group=%i' 'RuntimeDirectory=severance-docker-%i' \
+         'RuntimeDirectoryMode=0700' 'Delegate=yes' \
+         'Environment=XDG_RUNTIME_DIR=/run/severance-docker-%i'; do
+  grep -qx "$l" "$U" || fail "the docker unit lacks '$l'"
+done
+grep -q 'native.cgroupdriver=cgroupfs' "$U" ||
+  fail "the docker unit does not pin the cgroupfs driver"
+grep -v '^#' "$U" | grep -q '%I' && fail "the docker unit uses %I"
 
 # --- forget an enclave: retire keeps the data, purge does not ----------------
 # The home root is moved into T (SEVERANCE_HOME_ROOT), so the KEEP path, the
@@ -220,6 +263,11 @@ want "dry-run: mv $HR/alice-acme $HR/alice-acme.retired-" \
 want "dry-run: chown -R root:root $HR/alice-acme.retired-" \
   "the retired home is not taken away from the freed uid"
 want "dry-run: userdel alice-acme" "the account is not removed"
+_dd=$(printf '%s\n' "$out" |
+  grep -n 'disable --now severance-dockerd@alice-acme' | cut -d: -f1)
+_ud=$(printf '%s\n' "$out" | grep -n 'dry-run: userdel' | cut -d: -f1)
+[ -n "$_dd" ] && [ "$_dd" -lt "$_ud" ] ||
+  fail "forget does not stop the enclave's docker before userdel"
 want "record kept" "the record should survive a plain forget"
 printf '%s\n' "$out" | grep -q 'userdel -r' &&
   fail "a plain forget deleted the home (userdel -r)"

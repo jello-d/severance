@@ -48,7 +48,7 @@ for _d in bin lib share man; do
   [ -d "$PAY/$_d" ] || fail "payload is missing $_d/"
 done
 for _f in bin/severance bin/work lib/work-context_lib share/tools \
-          man/man1/severance.1; do
+          man/man1/severance.1 share/units/severance-dockerd@.service; do
   [ -e "$PAY/$_f" ] || fail "payload is missing $_f"
 done
 # COPIES, not links into the source. bin/severance is the one that matters

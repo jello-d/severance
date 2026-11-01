@@ -207,7 +207,12 @@ next account created, so nothing an enclave owned may survive it: a plain
 to root; `--purge` lets `userdel -r` delete it and removes the record.
 Nothing runs `rm -rf`; deleting a retired home is a deliberate human act.
 BUILT: `enclave add`, `enclave provision`, `enclave check`, and enclave
-`forget` (lib/provision_lib, test/provision.t). The docker unit is not.
+`forget` (lib/provision_lib, test/provision.t), and the docker unit
+(share/units/severance-dockerd@.service): provision copies the template from
+the root-owned install into /etc/systemd/system when it differs and enables
+one instance per `docker=yes` enclave, after linger; `DOCKER_HOST` goes into
+the enclave's environment.d; `docker=no` turns an enabled instance off;
+`forget` stops it before removing the account.
 
 severance owns the mechanism; an integrator decides which enclaves exist and
 provisions the tools and config inside one (a second identity's own pins and

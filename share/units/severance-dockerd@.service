@@ -1,0 +1,39 @@
+# Managed by severance (docs/enclave-user.md). Rootless docker for ONE
+# enclave account, run as a SYSTEM unit: the instance name IS the account
+# (`%i`, the raw instance, because `%I` would turn the `-` in
+# `<owner>-<enclave>` into a `/`). Installed into /etc/systemd/system by
+# `severance enclave provision`, root-owned, so the enclave cannot edit its
+# own daemon's definition; enabled per enclave whose record says docker=yes.
+#
+# A system unit rather than a `--user` one: teardown does not depend on a
+# user manager having exited, and root audits see it. The daemon's socket
+# is in this unit's own runtime dir, owned by the account and 0700, so the
+# account's shell reaches it directly (DOCKER_HOST, from the enclave's
+# environment.d) and nothing else can: no group socket, no relay.
+#
+# --exec-opt native.cgroupdriver=cgroupfs: the systemd driver would talk to
+# the account's user bus; cgroupfs on the subtree Delegate=yes hands over
+# needs nothing from a session, and resource limits still work (measured).
+[Unit]
+Description=severance: rootless docker for enclave account %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%i
+Group=%i
+RuntimeDirectory=severance-docker-%i
+RuntimeDirectoryMode=0700
+Environment=XDG_RUNTIME_DIR=/run/severance-docker-%i
+Environment=PATH=/usr/bin:/bin:/usr/sbin:/sbin
+ExecStart=/usr/bin/dockerd-rootless.sh --exec-opt native.cgroupdriver=cgroupfs
+Type=notify
+NotifyAccess=all
+Delegate=yes
+KillMode=mixed
+TimeoutStartSec=90
+LimitNOFILE=infinity
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target
