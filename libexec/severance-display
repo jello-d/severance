@@ -1,0 +1,233 @@
+#!/usr/bin/python3 -I
+"""severance-display <enclave>: open the enclave's RESTRICTED display socket.
+
+Runs as the enclave's OWNER, in the owner's graphical session
+(docs/enclave-user.md). It binds <share>/<enclave>/wayland-0 and registers
+it with the compositor through wp_security_context_manager_v1, the way a
+sandbox engine (Flatpak) does: every client that connects to that socket
+is in the enclave's security context, so the compositor offers it only its
+allowlist, marks its windows, and lets it see and capture only its own.
+
+The context lives exactly as long as this process: the compositor is
+handed the read end of a pipe whose write end only this process holds.
+Exits non-zero, removing the socket, when the compositor goes away.
+
+Standard library only, speaking the Wayland wire protocol directly, so the
+package gains no build step and no dependency for one request.
+"""
+
+import array
+import os
+import re
+import signal
+import socket
+import stat
+import struct
+import sys
+
+ENGINE = "severance"
+MANAGER = "wp_security_context_manager_v1"
+DISPLAY_ID = 1
+
+
+def die(msg, code=1):
+    sys.stderr.write("severance-display: %s\n" % msg)
+    sys.exit(code)
+
+
+def pad4(n):
+    return (n + 3) & ~3
+
+
+def wl_string(s):
+    raw = s.encode() + b"\0"
+    return struct.pack("<I", len(raw)) + raw + b"\0" * (pad4(len(raw)) -
+                                                        len(raw))
+
+
+def message(obj, opcode, payload=b""):
+    size = 8 + len(payload)
+    return struct.pack("<II", obj, (size << 16) | opcode) + payload
+
+
+class Wire:
+    """One client connection: send requests, read events in order."""
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.buf = b""
+        self.next_id = 2
+
+    def new_id(self):
+        n = self.next_id
+        self.next_id += 1
+        return n
+
+    def send(self, data, fds=()):
+        anc = []
+        if fds:
+            anc = [(socket.SOL_SOCKET, socket.SCM_RIGHTS,
+                    array.array("i", fds))]
+        self.sock.sendmsg([data], anc)
+
+    def event(self):
+        """The next (object, opcode, payload), or None when it closes."""
+        while len(self.buf) < 8 or len(self.buf) < self._size():
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                return None
+            self.buf += chunk
+        size = self._size()
+        obj, word = struct.unpack("<II", self.buf[:8])
+        payload, self.buf = self.buf[8:size], self.buf[size:]
+        return obj, word & 0xFFFF, payload
+
+    def _size(self):
+        return struct.unpack("<I", self.buf[4:8])[0] >> 16 if len(
+            self.buf) >= 8 else 8
+
+    def roundtrip(self, on_event):
+        """wl_display.sync, dispatching every event until its done."""
+        cb = self.new_id()
+        self.send(message(DISPLAY_ID, 0, struct.pack("<I", cb)))
+        while True:
+            ev = self.event()
+            if ev is None:
+                die("the compositor closed the connection")
+            obj, op, payload = ev
+            if obj == DISPLAY_ID and op == 0:
+                bad, code = struct.unpack("<II", payload[:8])
+                n = struct.unpack("<I", payload[8:12])[0]
+                text = payload[12:12 + n - 1].decode(errors="replace")
+                die("protocol error on object %d (code %d): %s"
+                    % (bad, code, text), 2)
+            if obj == cb:
+                return
+            on_event(obj, op, payload)
+
+
+def read_string(payload, off):
+    n = struct.unpack("<I", payload[off:off + 4])[0]
+    s = payload[off + 4:off + 4 + n - 1].decode(errors="replace")
+    return s, off + 4 + pad4(n)
+
+
+def connect_display():
+    name = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
+    if not name.startswith("/"):
+        rt = os.environ.get("XDG_RUNTIME_DIR")
+        if not rt:
+            die("XDG_RUNTIME_DIR is unset; run in a graphical session")
+        name = os.path.join(rt, name)
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(name)
+    except OSError as e:
+        die("cannot reach the compositor at %s: %s" % (name, e))
+    return s
+
+
+def find_manager(wire, registry):
+    found = {}
+
+    def on_event(obj, op, payload):
+        if obj == registry and op == 0:
+            gname = struct.unpack("<I", payload[:4])[0]
+            iface, off = read_string(payload, 4)
+            version = struct.unpack("<I", payload[off:off + 4])[0]
+            if iface == MANAGER:
+                found["name"], found["version"] = gname, version
+    wire.roundtrip(on_event)
+    if "name" not in found:
+        die("the compositor offers no %s (is the security-context plugin "
+            "loaded?)" % MANAGER)
+    return found["name"]
+
+
+def listen_on(path):
+    """Bind the enclave's socket. A stale SOCKET there is replaced; any
+    other kind of file is refused, never removed."""
+    try:
+        st = os.lstat(path)
+        if not stat.S_ISSOCK(st.st_mode):
+            die("%s exists and is not a socket; not touching it" % path)
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.bind(path)
+    # The share dir (<owner>:<account> 0710) is the gate, so the socket
+    # itself is open: the enclave can reach it by name and nothing else can
+    # reach the directory.
+    os.chmod(path, 0o666)
+    s.listen(16)
+    return s
+
+
+def main(argv):
+    if len(argv) != 2:
+        die("usage: severance-display <enclave>", 2)
+    enclave = argv[1]
+    if not re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", enclave):
+        die("'%s' is not an enclave name (a DNS label)" % enclave, 2)
+    root = os.environ.get("SEVERANCE_SHARE_ROOT", "/run/severance")
+    share = os.path.join(root, enclave)
+    if not os.path.isdir(share) or not os.access(share, os.W_OK):
+        die("%s is missing or not writable by this user (is %s this "
+            "enclave's owner, and is it provisioned?)"
+            % (share, os.environ.get("USER", "this user")))
+    path = os.path.join(share, "wayland-0")
+
+    wire = Wire(connect_display())
+    registry = wire.new_id()
+    wire.send(message(DISPLAY_ID, 1, struct.pack("<I", registry)))
+    gname = find_manager(wire, registry)
+    manager = wire.new_id()
+    wire.send(message(registry, 0, struct.pack("<I", gname)
+                      + wl_string(MANAGER) + struct.pack("<II", 1, manager)))
+
+    # A stop (systemd sends SIGTERM) removes the socket: once this process
+    # is gone the compositor has stopped listening on it, so a file left
+    # behind would only be a dead end for the enclave's next client.
+    def stop(signum, frame):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    lsock = listen_on(path)
+    close_r, close_w = os.pipe()
+    ctx = wire.new_id()
+    wire.send(message(manager, 1, struct.pack("<I", ctx)),
+              fds=(lsock.fileno(), close_r))
+    wire.send(message(ctx, 1, wl_string(ENGINE)))
+    wire.send(message(ctx, 2, wl_string(enclave)))
+    wire.send(message(ctx, 3, wl_string(enclave)))
+    wire.send(message(ctx, 4))
+    try:
+        wire.roundtrip(lambda *a: None)
+    except SystemExit:
+        os.unlink(path)
+        raise
+    lsock.close()
+    os.close(close_r)
+    print("ready: %s (security context %s/%s)" % (path, ENGINE, enclave),
+          flush=True)
+
+    # Hold close_w for as long as the context should exist; leave when the
+    # compositor does.
+    while wire.event() is not None:
+        pass
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    os.close(close_w)
+    die("the compositor went away; the enclave's display is closed")
+
+
+if __name__ == "__main__":
+    main(sys.argv)
