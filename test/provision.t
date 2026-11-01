@@ -183,4 +183,68 @@ for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
   printf '%s\n' "$env_out" | grep -qx "$l" || fail "environment lacks $l"
 done
 
-pass "add, provision (dry-run), renders, refusals, posix, privilege"
+# --- forget an enclave: retire keeps the data, purge does not ----------------
+# The home root is moved into T (SEVERANCE_HOME_ROOT), so the KEEP path, the
+# one that matters most, is exercised against a real directory.
+HR=$T/home; mkdir -p "$HR/alice-acme"; : > "$HR/alice-acme/work-file"
+fgt() {
+  env SEVERANCE_ENCLAVES_DIR="$ED" SEVERANCE_HOME_ROOT="$HR" \
+    SEVERANCE_SHARE_ROOT="$T/run" TMPDIR="$T/tmp" \
+    SUBUID="$T/subuid" SUBGID="$T/subgid" LINGER_DIR="$T/linger" \
+    TMPFILES_DIR="$T/tmpfiles" WC_PROFILES_DIR="$T/profiles" \
+    PATH="$T/bin:$PATH" ${DRY+SEVERANCE_DRYRUN=1} ${GONE+GONE=$GONE} \
+    sh "$SEV" forget "$@"
+}
+DRY=1; out=$(fgt acme) || fail "forget (dry) failed: $out"
+want "dry-run: loginctl disable-linger alice-acme" "linger not turned off"
+want "dry-run: mv $HR/alice-acme $HR/alice-acme.retired-" \
+  "the home is not RETIRED (kept) by default"
+want "dry-run: chown -R root:root $HR/alice-acme.retired-" \
+  "the retired home is not taken away from the freed uid"
+want "dry-run: userdel alice-acme" "the account is not removed"
+want "record kept" "the record should survive a plain forget"
+printf '%s\n' "$out" | grep -q 'userdel -r' &&
+  fail "a plain forget deleted the home (userdel -r)"
+out=$(fgt acme --purge) || fail "forget --purge (dry) failed: $out"
+want "dry-run: userdel -r alice-acme" "purge does not delete the home"
+want "dry-run: rm -f $ED/acme" "purge does not remove the record"
+
+# A name that is both a profile and an enclave is refused, not guessed.
+mkdir -p "$T/profiles"; printf 'work_dir=/w/acme\n' > "$T/profiles/acme"
+rc=0; out=$(fgt acme 2>&1) || rc=$?
+[ "$rc" = 1 ] || fail "an ambiguous forget exited $rc"
+case $out in *"both an enclave and a profile"*) ;; *) fail "$out" ;; esac
+rm -f "$T/profiles/acme"
+
+# THE REAL PATH, stubbed: the account is gone only when passwd says so.
+unset DRY
+for c in loginctl chown groupdel; do
+  printf '#!/bin/sh\nexit 0\n' > "$T/bin/$c"; done
+printf '#!/bin/sh\nexit 1\n' > "$T/bin/pgrep"
+printf '#!/bin/sh\n[ -n "$GONE" ] && : > "$GONE"\nexit 0\n' > "$T/bin/userdel"
+chmod +x "$T/bin"/*
+# getent answers "absent" for alice-acme once the GONE marker exists.
+mv "$T/bin/getent" "$T/bin/getent.real"
+cat > "$T/bin/getent" <<EOF2
+#!/bin/sh
+[ -e "$T/gone" ] && [ "\$2" = alice-acme ] && exit 2
+exec "$T/bin/getent.real" "\$@"
+EOF2
+chmod +x "$T/bin/getent"
+rc=0; out=$(fgt acme 2>&1) || rc=$?
+[ "$rc" = 1 ] || fail "forget exited $rc with the account still there"
+case $out in *"FAILED to remove account alice-acme"*) ;;
+  *) fail "a surviving account was not named: $out" ;; esac
+mkdir -p "$HR/alice-acme"; : > "$HR/alice-acme/work-file"
+GONE=$T/gone
+rc=0; out=$(fgt acme 2>&1) || rc=$?
+unset GONE
+[ "$rc" = 0 ] || fail "forget failed after userdel worked: $out"
+case $out in *"removed account alice-acme"*) ;; *) fail "$out" ;; esac
+ls "$HR" | grep -q '^alice-acme\.retired-' ||
+  fail "the retired home is not there: $(ls "$HR")"
+[ -f "$HR"/alice-acme.retired-*/work-file ] ||
+  fail "the retired home lost its contents"
+[ -f "$ED/acme" ] || fail "a plain forget removed the record"
+
+pass "add, provision, renders, forget (retire, purge, verified), privilege"

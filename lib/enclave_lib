@@ -12,12 +12,15 @@
 #
 # Everything else DERIVES, so no fact is stored twice:
 #   EN_ACCOUNT  <owner>-<name>          EN_HOME   /home/<account>
+#   (SEVERANCE_SHARE_ROOT and SEVERANCE_HOME_ROOT move those two roots, for
+#   tests; nothing else should set them)
 #   EN_SHARE    $SEV_SHARE_ROOT/<name>  EN_UID    from passwd, `-` if absent
 # `owner` is a key rather than "whoever runs this" because the account name
 # must come out the same whether root, the owner or the enclave asks.
 
 SEV_ENCLAVES_DIR=${SEVERANCE_ENCLAVES_DIR:-/etc/severance/enclaves}
 SEV_SHARE_ROOT=${SEVERANCE_SHARE_ROOT:-/run/severance}
+SEV_HOME_ROOT=${SEVERANCE_HOME_ROOT:-/home}
 
 # An enclave name is its PUBLISHED IDENTITY: a path component, part of an
 # account name, and the token `current` hands to consumers that use it as a
@@ -76,7 +79,7 @@ en_load() {   # <name>
   done < "$_en_f"
   _en_check "$1" "$_en_f" || return 2
   EN_NAME=$1 EN_OWNER=$_en_owner EN_ACCOUNT=$_en_owner-$1
-  EN_HOME=/home/$EN_ACCOUNT EN_SHARE=$SEV_SHARE_ROOT/$1
+  EN_HOME=$SEV_HOME_ROOT/$EN_ACCOUNT EN_SHARE=$SEV_SHARE_ROOT/$1
   EN_DOCKER=$_en_docker EN_GIT_REMOTE_GLOB=$_en_glob
   EN_UID=$(getent passwd "$EN_ACCOUNT" 2>/dev/null | cut -d: -f3)
   [ -n "$EN_UID" ] || EN_UID=-

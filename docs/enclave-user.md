@@ -202,7 +202,12 @@ Privileged, idempotent, per enclave:
 Teardown is the reverse, and VERIFIED, not announced: stop the docker
 instance and the user manager, wait for the account's processes to exit, and
 ask passwd whether the account is gone. A freed uid or gid is reissued to the
-next account created, so nothing an enclave owned may survive it.
+next account created, so nothing an enclave owned may survive it: a plain
+`forget` keeps the home but renames it `<home>.retired-<stamp>` and gives it
+to root; `--purge` lets `userdel -r` delete it and removes the record.
+Nothing runs `rm -rf`; deleting a retired home is a deliberate human act.
+BUILT: `enclave add`, `enclave provision`, `enclave check`, and enclave
+`forget` (lib/provision_lib, test/provision.t). The docker unit is not.
 
 severance owns the mechanism; an integrator decides which enclaves exist and
 provisions the tools and config inside one (a second identity's own pins and

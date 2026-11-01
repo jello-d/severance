@@ -322,3 +322,86 @@ _pv_check_share() {
     _ok "environment.d current"
   else _bad "environment.d missing or stale (re-run provision)"; fi
 }
+
+# --- forget: retire an enclave, verified --------------------------------------
+# `severance forget <enclave> [--purge]` (as root). Default RETIRES: the
+# account goes, its home is KEPT, renamed <home>.retired-<stamp> and owned
+# by root, because a freed uid is reissued to the next account created and
+# would inherit whatever the old one owned. --purge lets `userdel -r` delete
+# the home and removes the record too. Nothing here runs rm -rf; a retired
+# home is deleted by hand, and the literal command is printed for that.
+_pv_forget() {   # <name> <purge 0|1>
+  _pv_privileged "forget" || return 1
+  en_load "$1" || return 1
+  echo "severance: forgetting enclave '$1' (account $EN_ACCOUNT)"
+  if [ "$EN_UID" != - ]; then
+    _pv_stop_session || return 1
+    if [ "$2" = 1 ]; then _pv_do userdel -r "$EN_ACCOUNT" 2>/dev/null || :
+    else _pv_retire_home && { _pv_do userdel "$EN_ACCOUNT" || :; }
+    fi
+    _pv_account_gone || return 1
+    _pv_do sed -i "/^$EN_ACCOUNT:/d" "$SUBUID" "$SUBGID"
+  else
+    echo "  account $EN_ACCOUNT already absent"
+  fi
+  _pv_unshare
+  [ "$2" = 1 ] || { echo "  record kept: $SEV_ENCLAVES_DIR/$1"; return 0; }
+  _pv_do rm -f "$SEV_ENCLAVES_DIR/$1"
+  echo "  record removed"
+}
+
+# Linger off, the session ended, then WAIT for the account's processes to
+# exit: userdel refuses an account that still owns one, and a removal that is
+# announced before it happens is the bug `forget` already had once.
+_pv_stop_session() {
+  [ -e "$LINGER_DIR/$EN_ACCOUNT" ] && _pv_do loginctl disable-linger \
+    "$EN_ACCOUNT"
+  _pv_do loginctl terminate-user "$EN_ACCOUNT" 2>/dev/null || :
+  [ -n "${SEVERANCE_DRYRUN:-}" ] && return 0
+  _pv_n=0
+  while _pv_left=$(pgrep -u "$EN_UID" 2>/dev/null); do
+    _pv_n=$((_pv_n + 1))
+    if [ "$_pv_n" -ge 30 ]; then
+      echo "severance: $EN_ACCOUNT still owns processes after 30s:" \
+        $_pv_left >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+# Keep the data, take it away from the uid. Shape-checked first: the path is
+# exactly this enclave's derived home, so nothing else can be renamed.
+_pv_retire_home() {
+  [ -d "$EN_HOME" ] || return 0
+  case $EN_HOME in "$SEV_HOME_ROOT/$EN_ACCOUNT") ;; *)
+    echo "severance: refusing to retire '$EN_HOME'" >&2; return 1 ;; esac
+  _pv_to=$EN_HOME.retired-$(date +%Y%m%d%H%M%S)
+  _pv_do mv "$EN_HOME" "$_pv_to" || return 1
+  _pv_do chown -R root:root "$_pv_to" || return 1
+  _pv_do chmod 0700 "$_pv_to"
+  echo "  home KEPT, root-owned: $_pv_to"
+  echo "  (delete it deliberately: rm -rf $_pv_to)"
+}
+
+_pv_account_gone() {
+  if [ -n "${SEVERANCE_DRYRUN:-}" ]; then
+    echo "  build-only: account $EN_ACCOUNT NOT removed"; return 0
+  fi
+  if getent passwd "$EN_ACCOUNT" >/dev/null 2>&1; then
+    echo "severance: FAILED to remove account $EN_ACCOUNT" >&2; return 1
+  fi
+  echo "  removed account $EN_ACCOUNT"
+  if getent group "$EN_ACCOUNT" >/dev/null 2>&1; then
+    _pv_do groupdel "$EN_ACCOUNT" || :
+  fi
+}
+
+# The share dir's declaration, then the dir itself if it is empty of
+# anything but the sockets this package names.
+_pv_unshare() {
+  _pv_do rm -f "$TMPFILES_DIR/severance-$EN_NAME.conf"
+  [ -d "$EN_SHARE" ] || return 0
+  _pv_do rm -f "$EN_SHARE/wayland-0" "$EN_SHARE/pulse" "$EN_SHARE/relay"
+  _pv_do rmdir "$EN_SHARE" || echo "  $EN_SHARE not empty; left" >&2
+}

@@ -53,6 +53,9 @@ usage: severance <command> [args]
   forget <profile> [--purge] decommission: tear down the runner (--purge also
                              removes the record; the tree stays sealed, and
                              the group goes once the tree is gone)
+  forget <enclave> [--purge] retire an enclave (as root): the account goes,
+                             its home is KEPT root-owned as .retired-<stamp>;
+                             --purge deletes the home and the record
   check  [--seal|--runner]   audit; non-zero on drift (bare = both + validate)
   validate [profile]         lint profile records (before they provision)
   doctor                     whole-boundary health (install + wall + runner)

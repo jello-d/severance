@@ -21,6 +21,18 @@ sev_forget() {
   done
   [ -n "$_profile" ] || {
     echo "usage: severance forget <profile> [--purge]" >&2; return 2; }
+  # An ENCLAVE (one account per enclave) has its own teardown. A name that
+  # is both an enclave and a profile is refused rather than guessed at.
+  if [ -f "$SEV_ENCLAVES_DIR/$_profile" ]; then
+    if [ -f "$WC_PROFILES_DIR/$_profile" ]; then
+      echo "severance: '$_profile' is both an enclave and a profile;" >&2
+      echo "  retire the profile first (move its record aside)" >&2
+      return 1
+    fi
+    . "$SEV_LIB/provision_lib"
+    _pv_forget "$_profile" "$_purge"
+    return
+  fi
   wc_load "$_profile" || {
     echo "severance: no such profile: $_profile" >&2; return 1; }
   _r=$WC_RUNNER

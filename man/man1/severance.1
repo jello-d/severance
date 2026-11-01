@@ -125,6 +125,16 @@ also remove the record and regenerate the git fragment; the work tree is left
 sealed. The group is removed too, but only once the work tree is gone and no
 other record or account uses it, since a freed gid is reissued to the next
 group created. Privileged.
+.IP
+For an
+.I enclave
+(a registry record), the enclave's account is removed after its session has
+ended, and is verified gone. Its home is kept, renamed
+.IR home .retired- stamp
+and owned by root, because a freed uid is reissued to the next account
+created.
+.B \-\-purge
+deletes the home and the record instead. Run as root.
 .TP
 .BR check " [" \-\-seal | \-\-runner ]
 Audit the live boundary; non-zero on drift. Bare checks both and validates the
