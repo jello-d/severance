@@ -145,13 +145,31 @@ want "dry-run: loginctl enable-linger alice-newe" "linger is not enabled"
 want "$T/tmpfiles/severance-newe.conf" "the share dir is not declared"
 want "dry-run: runuser -u alice-newe" \
   "environment.d is not written AS THE ACCOUNT"
+# ORDER: linger starts the user manager at once and a manager reads
+# environment.d when it starts, so the file must exist before linger is on.
+# The other order was measured live: a session with no enclave environment.
+_ew=$(printf '%s\n' "$out" | grep -n 'dry-run: runuser -u alice-newe' |
+  head -1 | cut -d: -f1)
+_lg=$(printf '%s\n' "$out" | grep -n 'enable-linger alice-newe' | cut -d: -f1)
+[ "$_ew" -lt "$_lg" ] ||
+  fail "linger (line $_lg) is enabled before environment.d (line $_ew)"
 
 # Already provisioned: nothing is created or allocated again.
 grep -q '^alice-acme:' "$T/subuid" || {
   echo 'alice-acme:231072:65536' >> "$T/subuid"
   echo 'alice-acme:231072:65536' >> "$T/subgid"; }
 : > "$T/linger/alice-acme"
+# Its user manager is RUNNING (stub), so a rewritten environment.d must be
+# followed by a reload, or it waits for a reboot.
+cat > "$T/bin/systemctl" <<'EOF2'
+#!/bin/sh
+[ "$1 $2 $3" = "is-active --quiet user@990.service" ] && exit 0
+exit 3
+EOF2
+chmod +x "$T/bin/systemctl"
 out=$(prov acme) || fail "provision of a provisioned enclave failed: $out"
+want "dry-run: runuser -u alice-acme -- env XDG_RUNTIME_DIR=/run/user/990 \
+systemctl --user daemon-reload" "a running session is not reloaded"
 printf '%s\n' "$out" | grep -E 'dry-run: (useradd|usermod|loginctl)' &&
   fail "an already-provisioned enclave was provisioned again: $out"
 

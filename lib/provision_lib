@@ -152,9 +152,12 @@ _pv_provision_one() {
   _pv_account || return 1
   _pv_subids uid "$SUBUID" --add-subuids || return 1
   _pv_subids gid "$SUBGID" --add-subgids || return 1
-  _pv_linger || return 1
+  # environment.d BEFORE linger: linger starts the user manager at once,
+  # and a manager reads environment.d when it starts (and on reload), so the
+  # other order starts it without the enclave's environment. Measured.
   _pv_share_dir || return 1
   _pv_environment || return 1
+  _pv_linger || return 1
 }
 
 # The account: system range, its own user-private group, the owner's shell
@@ -262,6 +265,20 @@ _pv_environment() {
     < "$_pv_t" || { rm -f "$_pv_t"; return 1; }
   rm -f "$_pv_t"
   echo "severance: wrote $_pv_ed/50-severance.conf"
+  _pv_reload_env
+}
+
+# A RUNNING manager keeps the environment it started with until it reloads,
+# so a changed file must be followed by a reload or it waits for a reboot.
+# Services already running keep the old values; new ones get the new.
+_pv_reload_env() {
+  _pv_ru=$(getent passwd "$EN_ACCOUNT" 2>/dev/null | cut -d: -f3)
+  [ -n "$_pv_ru" ] || return 0
+  systemctl is-active --quiet "user@$_pv_ru.service" 2>/dev/null ||
+    return 0
+  _pv_do runuser -u "$EN_ACCOUNT" -- env "XDG_RUNTIME_DIR=/run/user/$_pv_ru" \
+    systemctl --user daemon-reload || return 1
+  echo "severance: $EN_ACCOUNT's session reloaded its environment"
 }
 
 # --- check: is each declared enclave what provision makes? --------------------
