@@ -180,4 +180,55 @@ _rel=$(printf '%s\n' "$p" | while IFS="$TAB" read -r _k _v; do
 done)
 [ -z "$_rel" ] || fail "paths emitted a relative path: $_rel"
 
-pass "payload + both command links + migration + uninstall + paths"
+# --- SYSTEM MODE: the shared install, per-command ----------------------------
+# SEVERANCE_SYS_PREFIX is the test seam for /opt/severance. Only the SHARED
+# commands are linked there: `work` is the login user's alone, and a system
+# copy of it on PATH would shadow the live one.
+S=$T/sys
+srun() {
+  env -i PATH="/usr/bin:/bin" HOME="$H" SEVERANCE_SYS_PREFIX="$S" \
+    NO_COLOR=1 ${ST+"SYSTEM_TOOLS=$ST"} sh "$HERE/setup.sh" "$@"
+}
+[ "$(srun system-tools)" = severance ] ||
+  fail "system-tools did not answer exactly 'severance'"
+# An empty declaration is a real answer, not a fallback to the default.
+rc=0; out=$(ST= srun system-tools) || rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] ||
+  fail "SYSTEM_TOOLS= did not declare nothing shared: rc=$rc '$out'"
+
+srun install --system >/dev/null 2>&1 || fail "install --system errored"
+[ -d "$S/share/severance/lib" ] || fail "no payload under the system prefix"
+[ "$(readlink "$S/bin/severance")" = "$S/share/severance/bin/severance" ] ||
+  fail "bin/severance is not linked into the system payload"
+[ -e "$S/bin/work" ] || [ -L "$S/bin/work" ] &&
+  fail "work was linked at the SYSTEM prefix; it is user-only"
+[ -x "$S/share/severance/bin/work" ] ||
+  fail "the system payload lost bin/work (the payload is the whole tree)"
+"$S/bin/severance" enclaves >/dev/null 2>&1 ||
+  fail "the system-installed severance does not run"
+
+out=$(srun paths --system)
+printf '%s\n' "$out" | grep -qx "bin${TAB}$S/bin/severance" ||
+  fail "paths --system lacks the severance link: $out"
+printf '%s\n' "$out" | grep -q "bin${TAB}.*/work" &&
+  fail "paths --system declares work: $out"
+printf '%s\n' "$out" | grep -qx "config${TAB}/etc/severance/enclaves" ||
+  fail "paths --system does not name the registry: $out"
+srun check --system >/dev/null 2>&1 || fail "check --system failed"
+
+srun uninstall --system >/dev/null 2>&1 || fail "uninstall --system errored"
+[ -e "$S/share/severance" ] && fail "uninstall --system left the payload"
+[ -L "$S/bin/severance" ] && fail "uninstall --system left the link"
+
+rc=0; srun install --bogus >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "an unknown option exited $rc, want 2"
+# Aimed at the REAL prefix as a non-root user: refused by name, before
+# anything is touched. (Skipped as root, where it would be a real install.)
+if [ "$(id -u)" != 0 ]; then
+  rc=0; out=$(env -i PATH="/usr/bin:/bin" HOME="$H" \
+    sh "$HERE/setup.sh" install --system 2>&1) || rc=$?
+  [ "$rc" = 1 ] || fail "a non-root --system install exited $rc"
+  case $out in *"run it as root"*) ;; *) fail "no reason given: $out" ;; esac
+fi
+
+pass "payload + both command links + migration + uninstall + paths + system"

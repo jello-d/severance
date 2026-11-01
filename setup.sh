@@ -9,6 +9,12 @@
 #   ./setup.sh paths       every root this package owns (KIND<TAB>PATH)
 #   ./setup.sh test        run the in-repo test suite (test/run)
 #   ./setup.sh version     the packaged version
+#   ./setup.sh system-tools  the SHARED commands, one per line, so an
+#                          integrator asks this rather than reading disk
+#
+# install, uninstall, check and paths take `--system` as a second argument:
+# the SHARED install, root-owned at /opt/severance, carrying only the
+# commands root and the enclave accounts run (SYSTEM_TOOLS). See SYSTEM MODE.
 #
 # POSIX sh, non-privileged. PREFIX (default ~/.local) and the XDG_* vars
 # override every destination, so a test drives it against a scratch dir.
@@ -34,9 +40,36 @@ set -eu
 PKG=severance
 _root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-PREFIX=${PREFIX:-$HOME/.local}
-_bin=${XDG_BIN_HOME:-$PREFIX/bin}
-_shr=${XDG_DATA_HOME:-$PREFIX/share}
+# SYSTEM MODE. Placement is classified PER COMMAND, never per package
+# (shared-notes/_install-placement.md): `severance` is run by root (it
+# provisions enclave accounts) and BY those accounts, which cannot read the
+# login user's home, so it is SHARED: a root-owned tree at /opt/severance,
+# published by an integrator as ONE link in /usr/local/bin. `work` is run only
+# by the login user and stays in the user install, so no system copy of it can
+# ever shadow the live one. `-`, not `:-`, so an integrator can declare that
+# nothing is shared: an empty answer is a real answer (hwdp paid for that).
+SYSTEM_TOOLS=${SYSTEM_TOOLS-severance}
+_sys=0
+case ${2:-} in
+  '') ;;
+  --system) _sys=1 ;;
+  *) echo "setup.sh: unknown option '$2'" >&2; exit 2 ;;
+esac
+if [ "$_sys" = 1 ]; then
+  # SEVERANCE_SYS_PREFIX is a TEST seam: the real prefix is root's, and a run
+  # aimed at it as anyone else fails here, by name, before touching anything.
+  PREFIX=${SEVERANCE_SYS_PREFIX:-/opt/$PKG}
+  _bin=$PREFIX/bin _shr=$PREFIX/share
+  if [ -z "${SEVERANCE_SYS_PREFIX:-}" ] && [ "$(id -u)" != 0 ]; then
+    echo "setup.sh: --system installs to $PREFIX, which is root's: run it" \
+      "as root (sudo sh setup.sh ${1:-install} --system)" >&2
+    exit 1
+  fi
+else
+  PREFIX=${PREFIX:-$HOME/.local}
+  _bin=${XDG_BIN_HOME:-$PREFIX/bin}
+  _shr=${XDG_DATA_HOME:-$PREFIX/share}
+fi
 _man=$_shr/man
 _pay=$_shr/$PKG
 _cfg=${XDG_CONFIG_HOME:-$HOME/.config}
@@ -70,7 +103,12 @@ _rmln() { if [ "$(readlink "$2" 2>/dev/null)" = "$1" ]; then rm -f "$2"; fi; }
 # set RC in a child and lose it.
 _cmds() {
   for _c in "$_root"/bin/*; do
-    if [ -f "$_c" ]; then printf '%s\n' "${_c##*/}"; fi
+    if [ -f "$_c" ]; then
+      if [ "$_sys" = 1 ]; then
+        case " $SYSTEM_TOOLS " in *" ${_c##*/} "*) ;; *) continue ;; esac
+      fi
+      printf '%s\n' "${_c##*/}"
+    fi
   done
 }
 # Payload-RELATIVE paths (man/man1/severance.1), which is both where the page
@@ -188,6 +226,12 @@ do_install() {
   for _m in $(_man_pages); do _ln "$_pay/$_m" "$_man/${_m#man/}"; done
   _retire_old_layout
   echo "$PKG: installed to $_pay (+ bin and man links under $PREFIX)"
+  if [ "$_sys" = 1 ]; then
+    echo "$PKG: SHARED install. Publish each of: $SYSTEM_TOOLS"
+    echo "  as ONE link in /usr/local/bin, and drop its ~/.local copy (an"
+    echo "  integrator's share step), so it is on PATH exactly once."
+    return 0
+  fi
   _path_hint
   _wiring_hint
   echo "$PKG: next: severance init <name>, then severance seal."
@@ -271,7 +315,25 @@ do_check() {
   else
     ok "no retired layout path"
   fi
+  if [ "$_sys" = 1 ]; then _check_root_owned; return; fi
   "$_root/bin/$PKG" check || RC=1      # the live boundary, severance's own verb
+}
+
+# Root EXECUTES this tree, so nothing in it may be writable by anyone else:
+# a user-writable file that root runs is privilege escalation. At a test
+# prefix nobody is root, so the assertion says it was not made.
+_check_root_owned() {
+  if [ -n "${SEVERANCE_SYS_PREFIX:-}" ]; then
+    warn "ownership not checked at a test prefix ($PREFIX)"
+    return 0
+  fi
+  _w=$(find "$PREFIX" \( ! -user 0 -o -perm -g+w -o -perm -o+w \) \
+    ! -type l -print 2>/dev/null | head -3)
+  if [ -z "$_w" ]; then
+    ok "$PREFIX is root-owned and not group- or world-writable"
+  else
+    bad "$PREFIX holds files root runs that others can change: $_w"
+  fi
 }
 
 # --- paths: the ONE declaration of every root this package owns --------------
@@ -296,16 +358,22 @@ do_paths() {
   for _c in $(_cmds); do printf 'bin\t%s\n' "$_bin/$_c"; done
   printf 'payload\t%s\n' "$_pay"
   for _m in $(_man_pages); do printf 'man\t%s\n' "$_man/${_m#man/}"; done
+  if [ "$_sys" = 1 ]; then
+    printf 'config\t%s\n' "${SEVERANCE_ENCLAVES_DIR:-/etc/$PKG/enclaves}"
+    return 0
+  fi
   printf 'config\t%s\n' "$_cfg/$PKG"
   printf 'config\t%s\n' "$_cfg/git/work-context.gen"
 }
 
-_U="usage: setup.sh [install|uninstall|check|paths|test|version]"
+_U="usage: setup.sh [install|uninstall|check|paths [--system]|test|version"
+_U="$_U|system-tools]"
 case "${1:-help}" in
   install)   do_install ;;
   uninstall) do_uninstall ;;
   check)     do_check; exit "$RC" ;;
   paths)     do_paths ;;
+  system-tools) for _st in $SYSTEM_TOOLS; do printf '%s\n' "$_st"; done ;;
   test)      exec sh "$_root/test/run" ;;
   version)   _v=$(git -C "$_root" describe --tags --always 2>/dev/null || true)
              echo "${_v:-$PKG (unversioned)}" ;;

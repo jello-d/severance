@@ -46,6 +46,15 @@ get which integration is the integrator's call. severance's CLI is what it is
 integrated by; wiring a consumer to it is somebody else's job, and so is
 checking that their end of the seam works.
 
+`sudo sh setup.sh install --system` is the SHARED install: the same payload,
+root-owned at `/opt/severance`, with only the commands root and enclave
+accounts run linked there (`severance`; `sh setup.sh system-tools` lists
+them). Placement is decided per command: `work` is the login user's alone and
+stays in the user install. An integrator publishes each shared command as ONE
+link in `/usr/local/bin` and removes its `~/.local` copy, so it is on PATH
+exactly once. `check --system` asserts the tree is root-owned and writable by
+no one else, because root runs it.
+
 `./setup.sh uninstall` removes the links and the payload, and reports what it
 kept (your records, and the sealed trees, which are kernel state no uninstall
 can undo). `./setup.sh paths` prints every root the package owns, one
