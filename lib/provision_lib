@@ -1,0 +1,108 @@
+# provision_lib - the PRIVILEGED half of the enclave-user model
+# (docs/enclave-user.md): declare an enclave in the registry. Sourced by
+# bin/severance after common_lib (which brings enclave_lib).
+#
+#   severance enclave add <name> owner=<user> [key=val ...]
+#
+# Run AS ROOT, by a human through sudo or by an integrator's root-scope
+# provisioning. Nothing here calls sudo: a verb that escalates on its own is a
+# verb an unprivileged caller can drive.
+
+# Root runs these, and root executing a file its user can change is privilege
+# escalation, so they refuse to run from an install anyone but root could
+# have written. Checked on the REAL path of the running command and on its
+# lib. A test registry (SEVERANCE_ENCLAVES_DIR) is the one seam: no root is
+# involved there, so neither check applies.
+_pv_privileged() {   # <verb>
+  [ -n "${SEVERANCE_ENCLAVES_DIR:-}" ] && return 0
+  if [ "$(id -u)" != 0 ]; then
+    echo "severance: '$1' changes the box; run it as root" >&2
+    return 1
+  fi
+  # The command, and EVERY file it sources, not just their directory.
+  _pv_open=$(find -L "$SEVERANCE_SELF" "$SEV_LIB" \( ! -user 0 \
+    -o -perm -g+w -o -perm -o+w \) -print 2>/dev/null | head -1)
+  [ -z "$_pv_open" ] && return 0
+  echo "severance: refusing '$1' as root: $_pv_open is not root-owned" >&2
+  echo "  and closed. Root must run the SHARED install" >&2
+  echo "  (sudo sh setup.sh install --system), never a user's copy." >&2
+  return 1
+}
+
+# The scratch dir holds exactly one file, so it is removed by name and
+# rmdir'd: no rm -rf of a computed path.
+_pv_clean() {   # <dir> <name>
+  rm -f "$1/$2"
+  rmdir "$1" 2>/dev/null || :
+}
+
+sev_enclave() {
+  _pv_sub=${1:-}
+  [ "$#" -gt 0 ] && shift
+  case $_pv_sub in
+    add) _pv_add "$@" ;;
+    *) echo "usage: severance enclave add <name> owner=<user> [key=val ...]" \
+         >&2
+       return 2 ;;
+  esac
+}
+
+# Write (or update) one record, VALIDATED by the same reader every consumer
+# uses before it lands, and swapped in atomically, so the registry never holds
+# a half-written or unparseable record. Re-running with the same values is a
+# no-op that says so.
+_pv_add() {   # <name> key=val...
+  _pv_n=${1:-}
+  [ -n "$_pv_n" ] || {
+    echo "usage: severance enclave add <name> owner=<user> [key=val ...]" >&2
+    return 2; }
+  shift
+  _pv_privileged "enclave add" || return 1
+  _pv_tmp=$(mktemp -d) || return 1
+  for _pv_kv in "$@"; do
+    case $_pv_kv in
+      *=*) printf '%s\n' "$_pv_kv" ;;
+      *) echo "severance: not key=val: $_pv_kv" >&2
+         _pv_clean "$_pv_tmp" "$_pv_n"; return 2 ;;
+    esac
+  done > "$_pv_tmp/$_pv_n"
+  # Validate with the reader itself, pointed at the scratch copy. Saved and
+  # restored by hand: an assignment prefixed to a FUNCTION call may outlive
+  # it in POSIX sh, which would aim the write below at the scratch dir.
+  _pv_reg=$SEV_ENCLAVES_DIR
+  SEV_ENCLAVES_DIR=$_pv_tmp
+  _pv_ok=0; en_load "$_pv_n" || _pv_ok=$?
+  SEV_ENCLAVES_DIR=$_pv_reg
+  if [ "$_pv_ok" != 0 ]; then _pv_clean "$_pv_tmp" "$_pv_n"; return 2; fi
+  _pv_new_owner=$EN_OWNER
+  _pv_rec=$SEV_ENCLAVES_DIR/$_pv_n
+  _pv_owner_change "$_pv_n" "$_pv_new_owner" || {
+    _pv_clean "$_pv_tmp" "$_pv_n"; return 1; }
+  if cmp -s "$_pv_tmp/$_pv_n" "$_pv_rec"; then
+    _pv_clean "$_pv_tmp" "$_pv_n"
+    echo "severance: enclave '$_pv_n' current ($_pv_rec)"
+    return 0
+  fi
+  mkdir -p "$SEV_ENCLAVES_DIR" || {
+    _pv_clean "$_pv_tmp" "$_pv_n"; return 1; }
+  cp "$_pv_tmp/$_pv_n" "$_pv_rec.new" && chmod 0644 "$_pv_rec.new" &&
+    mv -f "$_pv_rec.new" "$_pv_rec" || {
+      rm -f "$_pv_rec.new"; _pv_clean "$_pv_tmp" "$_pv_n"
+      echo "severance: could not write $_pv_rec" >&2; return 1; }
+  _pv_clean "$_pv_tmp" "$_pv_n"
+  echo "severance: enclave '$_pv_n' declared ($_pv_rec)"
+}
+
+# The account name is <owner>-<name>, so changing the owner of an enclave
+# whose account EXISTS would orphan that account and everything it owns under
+# a name nothing derives any more. Refused; retire the enclave first.
+_pv_owner_change() {   # <name> <new owner>
+  [ -r "$SEV_ENCLAVES_DIR/$1" ] || return 0
+  en_load "$1" 2>/dev/null || return 0
+  [ "$EN_OWNER" = "$2" ] && return 0
+  [ "$EN_UID" = - ] && return 0
+  echo "severance: enclave '$1' belongs to '$EN_OWNER' and its account" >&2
+  echo "  $EN_ACCOUNT exists; changing the owner would orphan it. Run" >&2
+  echo "  'severance forget $1' first." >&2
+  return 1
+}

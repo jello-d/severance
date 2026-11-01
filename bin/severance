@@ -42,6 +42,8 @@ usage: severance <command> [args]
   current [PID]              which enclave a process is IN (profile name, or
                              nothing); non-zero only if it cannot tell
   enclaves                   the enclave REGISTRY, one line per enclave
+  enclave add <name> owner=<user> [key=val..]
+                             declare an enclave in the registry (as root)
   init   <name> [key=val..]  scaffold a new profile record
   seal   [profile...]        provision the work boundary (privileged)
   runner [profile...]        provision the rootless-docker runner (privileged)
@@ -82,6 +84,7 @@ case $cmd in
   use)     . "$SEV_LIB/profile_lib"; sev_use "$@" ;;
   current) . "$SEV_LIB/profile_lib"; sev_current "$@" ;;
   enclaves) sev_enclaves "$@" ;;
+  enclave)  . "$SEV_LIB/provision_lib"; sev_enclave "$@" ;;
   init)    . "$SEV_LIB/profile_lib"; sev_init "$@" ;;
   seal)    sev_sudo_prime; . "$SEV_LIB/seal_lib";   sev_seal "$@" ;;
   runner)  sev_sudo_prime; . "$SEV_LIB/runner_lib"; sev_runner "$@" ;;
