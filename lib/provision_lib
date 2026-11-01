@@ -396,10 +396,15 @@ _pv_forget() {   # <name> <purge 0|1>
     _pv_do systemctl disable --now "severance-dockerd@$EN_ACCOUNT.service" \
       2>/dev/null || :
     _pv_stop_session || return 1
+    # The account goes FIRST, verified, and only then is the home retired:
+    # a userdel that fails must leave everything where it was, so the
+    # forget can simply be re-run. Retiring first left an account whose
+    # home had already moved away (found by a test that flaked on it).
     if [ "$2" = 1 ]; then _pv_do userdel -r "$EN_ACCOUNT" 2>/dev/null || :
-    else _pv_retire_home && { _pv_do userdel "$EN_ACCOUNT" || :; }
+    else _pv_do userdel "$EN_ACCOUNT" || :
     fi
     _pv_account_gone || return 1
+    [ "$2" = 1 ] || _pv_retire_home || return 1
     _pv_do sed -i "/^$EN_ACCOUNT:/d" "$SUBUID" "$SUBGID"
   else
     echo "  account $EN_ACCOUNT already absent"

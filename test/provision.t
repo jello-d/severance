@@ -314,7 +314,11 @@ rc=0; out=$(fgt acme 2>&1) || rc=$?
 [ "$rc" = 1 ] || fail "forget exited $rc with the account still there"
 case $out in *"FAILED to remove account alice-acme"*) ;;
   *) fail "a surviving account was not named: $out" ;; esac
-mkdir -p "$HR/alice-acme"; : > "$HR/alice-acme/work-file"
+# ...and NOTHING MOVED: the home is still where the account says it is, so
+# the forget can be re-run. (It used to be retired before userdel.)
+[ -f "$HR/alice-acme/work-file" ] ||
+  fail "a failed forget had already moved the home away"
+ls "$HR" | grep -q 'retired' && fail "a failed forget retired the home"
 GONE=$T/gone
 rc=0; out=$(fgt acme 2>&1) || rc=$?
 unset GONE
