@@ -114,3 +114,4 @@ for _, k in ipairs (KINDS) do
   severance_access_om[k]:activate ()
 end
 severance_access_clients:activate ()
+log:info ("loaded: enclave clients see only their own enclave")

@@ -99,7 +99,8 @@ SA=$T/share/acme/pipewire-0 SB=$T/share/bravo/pipewire-0
 waitfor '[ -S "$SA" ] && [ -S "$SB" ]' "the enclave sockets"
 WIREPLUMBER_DEBUG=3 wireplumber > "$T/wp.log" 2>&1 &
 PIDS="$PIDS $!"
-waitfor 'grep -q "severance-access" "$T/wp.log"' "the script to load"
+waitfor 'grep -q "s-severance-access.*loaded:" "$T/wp.log"' \
+  "the script to load"
 
 for n in acme bravo own; do
   _r=; [ "$n" = own ] || _r=$T/share/$n/pipewire-0
@@ -146,4 +147,31 @@ print(" ".join(sorted(x for x in n if x)))')
   fail "enclave acme sees nodes other than its own: $seen"
 grep -q "admitted client .* as severance-acme" "$T/wp.log" ||
   fail "the script never logged admitting an enclave client"
+
+# FAILS TOWARD THE OWNER: the fragment placed and the script MISSING. The
+# owner's WirePlumber must still run (a REQUIRED component would make it
+# exit, measured), and an enclave client must then get nothing at all.
+kill $PIDS 2>/dev/null || :
+PIDS=
+rm -f "$T/data/wireplumber/scripts/severance-access.lua" "$T/bus"
+dbus-daemon --session --nofork --address="$DBUS_SESSION_BUS_ADDRESS" \
+  > /dev/null 2>&1 &
+PIDS="$PIDS $!"
+pipewire -c "$CONF" > "$T/pw2.log" 2>&1 &
+PIDS="$PIDS $!"
+waitfor '[ -S "$T/bus" ]' "the private bus, again"
+waitfor 'pw-cli info 0 > /dev/null 2>&1' "PipeWire, again"
+wireplumber > "$T/wp2.log" 2>&1 &
+WP=$!
+PIDS="$PIDS $WP"
+sleep 3
+kill -0 "$WP" 2>/dev/null ||
+  fail "WirePlumber exited with the script missing: $(tail -1 "$T/wp2.log")"
+n=$(timeout 4 env PIPEWIRE_REMOTE="$SA" pw-dump 2>/dev/null |
+  python3 -I -c 'import json, sys; print(len(json.load(sys.stdin)))' \
+  2>/dev/null) || n=none
+case $n in
+  none|0) ;;
+  *) fail "with the script missing an enclave client saw $n objects" ;;
+esac
 pass "missing dir skipped, stock fallback; others refused by serial"
