@@ -49,6 +49,9 @@ _root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # ever shadow the live one. `-`, not `:-`, so an integrator can declare that
 # nothing is shared: an empty answer is a real answer (hwdp paid for that).
 SYSTEM_TOOLS=${SYSTEM_TOOLS-severance}
+# Where an integrator PUBLISHES a shared command: one link per command into
+# the shared tree. A test seam, like the rest.
+SHARED_BIN=${SEVERANCE_SHARED_BIN:-/usr/local/bin}
 _sys=0
 case ${2:-} in
   '') ;;
@@ -92,6 +95,18 @@ bad()  { printf '  %s[FAIL]%s %s\n' "$_R" "$_O" "$1"; RC=1; }
 warn() { printf '  %s[WARN]%s %s\n' "$_Y" "$_O" "$1"; }
 
 _ln()   { mkdir -p "$(dirname "$2")"; ln -sfn "$1" "$2"; }
+
+# Is <cmd> a SHARED command that an integrator has PUBLISHED, i.e. a link in
+# SHARED_BIN pointing outside this user's home? Then the user install must
+# not ALSO put it on PATH: a typed command lives on PATH exactly once, and
+# the provisioner's dedup removes a ~/.local copy of a published one. A
+# shared command that is NOT published is linked here as before, so a box
+# without the shared install keeps working. (hwdp's recipe; tackup SV18.)
+_published() {   # <cmd>
+  case " $SYSTEM_TOOLS " in *" $1 "*) ;; *) return 1 ;; esac
+  [ -L "$SHARED_BIN/$1" ] || return 1
+  case "$(readlink "$SHARED_BIN/$1")" in "$HOME"/*) return 1 ;; esac
+}
 # Only ever removes a link we recognise, so an unrelated file at that path, or
 # somebody else's link, is left exactly alone.
 _rmln() { if [ "$(readlink "$2" 2>/dev/null)" = "$1" ]; then rm -f "$2"; fi; }
@@ -227,7 +242,18 @@ _wiring_hint() {
 do_install() {
   mkdir -p "$_bin" "$_shr"
   _payload_stage || return 1
-  for _c in $(_cmds); do _ln "$_pay/bin/$_c" "$_bin/$_c"; done
+  for _c in $(_cmds); do
+    if [ "$_sys" = 0 ] && _published "$_c"; then
+      # Swept, not just skipped: a copy left from before the publish would
+      # be the second one on PATH.
+      if [ -L "$_bin/$_c" ]; then
+        _rmln "$_pay/bin/$_c" "$_bin/$_c"
+        echo "$PKG: $_c is published at $SHARED_BIN; dropped $_bin/$_c"
+      fi
+      continue
+    fi
+    _ln "$_pay/bin/$_c" "$_bin/$_c"
+  done
   for _m in $(_man_pages); do _ln "$_pay/$_m" "$_man/${_m#man/}"; done
   _retire_old_layout
   echo "$PKG: installed to $_pay (+ bin and man links under $PREFIX)"
@@ -296,8 +322,16 @@ do_check() {
   # EVERY command, not just the headline one: `work` is the sole sudo entry
   # point, and an install that linked one of the two and reported success is
   # exactly the failure usher's conversion found in itself.
+  # A PUBLISHED shared command is expected at SHARED_BIN, NOT here; both is
+  # two copies on PATH, which is the failure, not the belt and braces.
   for _c in $(_cmds); do
-    if [ "$(readlink "$_bin/$_c" 2>/dev/null)" = "$_pay/bin/$_c" ]; then
+    if [ "$_sys" = 0 ] && _published "$_c"; then
+      if [ -e "$_bin/$_c" ] || [ -L "$_bin/$_c" ]; then
+        bad "$_c is on PATH twice: $SHARED_BIN/$_c and $_bin/$_c"
+      else
+        ok "$_c is shared, published at $SHARED_BIN/$_c"
+      fi
+    elif [ "$(readlink "$_bin/$_c" 2>/dev/null)" = "$_pay/bin/$_c" ]; then
       ok "bin/$_c links into the payload"
     else
       bad "$_bin/$_c does not link to $_pay/bin/$_c"
@@ -360,7 +394,10 @@ _check_root_owned() {
 # records below, which is the whole point of the design and is why there is
 # nothing here to clean up but config.
 do_paths() {
-  for _c in $(_cmds); do printf 'bin\t%s\n' "$_bin/$_c"; done
+  for _c in $(_cmds); do
+    [ "$_sys" = 0 ] && _published "$_c" && continue
+    printf 'bin\t%s\n' "$_bin/$_c"
+  done
   printf 'payload\t%s\n' "$_pay"
   for _m in $(_man_pages); do printf 'man\t%s\n' "$_man/${_m#man/}"; done
   if [ "$_sys" = 1 ]; then

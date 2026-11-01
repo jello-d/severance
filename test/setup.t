@@ -33,6 +33,7 @@ P1=$T/p1 P2=$T/p2 P3=$T/p3 P4=$T/p4
 run() {
   _p=$1; shift
   env -i PATH="/usr/bin:/bin" HOME="$H" PREFIX="$_p" \
+    SEVERANCE_SHARED_BIN="${SB:-$T/no-shared-bin}" \
     XDG_BIN_HOME="$_p/bin" XDG_DATA_HOME="$_p/share" \
     XDG_CONFIG_HOME="$H/.config" NO_COLOR=1 sh "$HERE/setup.sh" "$@"
 }
@@ -235,4 +236,41 @@ if [ "$(id -u)" != 0 ]; then
   case $out in *"run it as root"*) ;; *) fail "no reason given: $out" ;; esac
 fi
 
-pass "payload + both command links + migration + uninstall + paths + system"
+# --- a PUBLISHED shared command is not ALSO linked in the user prefix -------
+# tackup SV18: once an integrator publishes /usr/local/bin/severance (here
+# SEVERANCE_SHARED_BIN), the provisioner's dedup removes a ~/.local copy, so
+# the user install must neither re-create it nor fail its check without it,
+# or the publish is rolled back. `work` stays user-only throughout.
+P5=$T/p5 SB=$T/ulb
+mkdir -p "$SB"
+ln -s /opt/severance/bin/severance "$SB/severance"
+out=$(run "$P5" install 2>&1) || fail "install with severance published: $out"
+[ -e "$P5/bin/severance" ] || [ -L "$P5/bin/severance" ] &&
+  fail "a published shared command was linked into the user prefix too"
+[ -L "$P5/bin/work" ] || fail "work lost its user link"
+# A copy left from before the publish is SWEPT on the next install.
+ln -s "$P5/share/severance/bin/severance" "$P5/bin/severance"
+out=$(run "$P5" install 2>&1)
+case $out in *"published at $SB; dropped $P5/bin/severance"*) ;;
+  *) fail "the stale user copy was not swept: $out" ;; esac
+[ -L "$P5/bin/severance" ] && fail "the stale user copy survived install"
+# check accepts the published layout, and calls both copies a failure.
+out=$(run "$P5" check 2>&1) || :
+case $out in *"severance is shared, published at $SB/severance"*) ;;
+  *) fail "check did not accept the published command: $out" ;; esac
+case $out in *"does not link"*) fail "check wants a user link: $out" ;; esac
+ln -s "$P5/share/severance/bin/severance" "$P5/bin/severance"
+out=$(run "$P5" check 2>&1) || :
+case $out in *"severance is on PATH twice"*) ;;
+  *) fail "two copies on PATH were not reported: $out" ;; esac
+rm -f "$P5/bin/severance"
+# paths no longer claims the published command.
+run "$P5" paths | grep -q "^bin${TAB}$P5/bin/severance$" &&
+  fail "paths claims a command the user install no longer owns"
+# A "publish" pointing back into the HOME is not a shared tree: linked.
+rm -f "$SB/severance"; ln -s "$H/x/severance" "$SB/severance"
+run "$P5" install >/dev/null 2>&1
+[ -L "$P5/bin/severance" ] || fail "a home-pointing link counted as published"
+unset SB
+
+pass "payload, links, migration, uninstall, paths, system, published"
