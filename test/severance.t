@@ -389,7 +389,7 @@ echo "$out" | grep -q 'rmdir /run/g-run' \
 [ -f "$FP/gone" ] || fail "forget (no --purge): removed the record"
 
 # The REAL path, through a stub sudo: the account is gone only when `id` says
-# so. LIVE on box B 2026-10-13: userdel refused (the user manager was still
+# so. LIVE on one box 2026-10-13: userdel refused (the user manager was still
 # exiting), forget printed "removed runner account", and the account survived.
 # FS_GONE is the stub's passwd: id answers "no such user" once it exists.
 RB=$T/rbin; mkdir -p "$RB"

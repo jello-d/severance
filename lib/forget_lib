@@ -103,7 +103,7 @@ _tear_down_runner() {   # <runner>
 }
 
 # disable-linger stops the user manager ASYNCHRONOUSLY, and userdel refuses an
-# account that still owns a process. Measured on box B 2026-10-13: userdel ran
+# account that still owns a process. Measured on one box 2026-10-13: userdel ran
 # in the same second as disable-linger, refused, and the account survived a
 # report saying it was removed; the same userdel 4.5 minutes later succeeded.
 # So end the session and WAIT for the process table to empty.

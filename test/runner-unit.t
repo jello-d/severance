@@ -158,7 +158,7 @@ drive 'RUNNER=demo' "_has_subids $T/su" &&
 
 # --- _ensure_account: a NEW runner is a SYSTEM account ----------------------
 # Without --system it lands at UID_MIN or above, and systemd starts every
-# globally enabled user unit for it (box A's audio outage, 2026-10). sudo
+# globally enabled user unit for it (an audio outage, 2026-10). sudo
 # is a function here, so the useradd is captured rather than run.
 out=$(drive 'RUNNER=sev-test-no-such-acct; RUNNER_HOME=/home/x; WC_GROUP=wg
              WC_PROFILE=p; sudo() { echo "SUDO $*"; }' '_ensure_account')

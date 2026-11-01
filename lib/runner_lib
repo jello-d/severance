@@ -199,7 +199,7 @@ _deps_ok() {
 #
 # --system puts it below UID_MIN, where systemd stops treating it as a person.
 # manifest-runner was created without it (uid 1001), so its user manager
-# started every globally enabled user unit, PipeWire included, and on box A
+# started every globally enabled user unit, PipeWire included, and on one box
 # 2026-10 that raced the human's audio stack for the ALSA devices and won.
 # `ConditionUser=@system` can only exclude an account by its uid RANGE.
 _ensure_account() {
