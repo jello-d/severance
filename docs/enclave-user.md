@@ -207,8 +207,11 @@ next account created, so nothing an enclave owned may survive it.
 severance owns the mechanism; an integrator decides which enclaves exist and
 provisions the tools and config inside one (a second identity's own pins and
 placed files). The installed `severance` must be runnable by root and by every
-enclave account, so it moves to a root-owned system prefix rather than the
-login user's home.
+enclave account, so it is SHARED (decided, built): `setup.sh install
+--system` places a root-owned copy at /opt/severance, an integrator publishes
+it as one link in /usr/local/bin, and `setup.sh system-tools` names what is
+shared. Placement is per command: `work` is the login user's alone and stays
+in the user install. Enclave-side helpers run from /opt/severance too.
 
 ## Contracts
 
@@ -242,9 +245,9 @@ Each change is a `docs/breaking-changes.md` entry.
 1. LAUNCH WITHOUT A TTY: a transient unit in the enclave's user manager
    (polkit-authorised) or `pkexec` with the enclave's environment. Settled by
    a spike.
-2. WHO WRITES REGISTRY RECORDS: a severance verb run as root, called by the
-   integrator's root-scope provisioning, is the proposal.
-3. THE SYSTEM INSTALL: prefix and how a provisioner places it.
+2. DECIDED: registry records are written by a severance verb run as root,
+   which the integrator's root-scope provisioning calls.
+3. DECIDED AND BUILT: the shared install, above.
 4. CAMERAS: device access always (group) or only while the login user's
    session is active (ACL). The integrator's call.
 5. THE DISPLAY HELPER: language and dependencies; it is one protocol
