@@ -295,7 +295,8 @@ _pv_reload_env() {
 _pv_check() {   # [name...]
   echo "== severance enclaves (one account per enclave) =="
   [ "$#" -gt 0 ] || set -- $(en_names)
-  [ "$#" -gt 0 ] || { _ok "no enclaves declared"; return 0; }
+  _pv_check_template
+  [ "$#" -gt 0 ] || { _ok "no enclaves declared"; return "$REPORT_RC"; }
   for _pv_e in "$@"; do
     echo "-- $_pv_e --"
     if ! en_load "$_pv_e"; then _bad "$_pv_e: record does not parse"
@@ -377,6 +378,22 @@ _pv_forget() {   # <name> <purge 0|1>
   [ "$2" = 1 ] || { echo "  record kept: $SEV_ENCLAVES_DIR/$1"; return 0; }
   _pv_do rm -f "$SEV_ENCLAVES_DIR/$1"
   echo "  record removed"
+  _pv_docker_others "$1" && return 0
+  [ -e "$SYSTEMD_UNIT_DIR/$_PV_UNIT" ] || return 0
+  _pv_do rm -f "$SYSTEMD_UNIT_DIR/$_PV_UNIT"
+  _pv_do systemctl daemon-reload
+  echo "  removed $_PV_UNIT (no docker enclave left)"
+}
+
+# Does any enclave OTHER than <name> still want docker? The template exists
+# exactly while one does: a template nothing uses is a root-owned unit file
+# that only rots, and a leftover is how one was first noticed.
+_pv_docker_others() {   # <name>
+  for _pv_o in $(en_names); do
+    [ "$_pv_o" = "$1" ] && continue
+    en_load "$_pv_o" 2>/dev/null && [ "$EN_DOCKER" = yes ] && return 0
+  done
+  return 1
 }
 
 # Linger off, the session ended, then WAIT for the account's processes to
@@ -474,6 +491,13 @@ _pv_unit_file() {
   _pv_do systemctl daemon-reload || return 1
   _pv_unit_changed=1
   echo "severance: installed $_pv_dst"
+}
+
+# The template is present exactly while some enclave wants docker.
+_pv_check_template() {
+  [ -e "$SYSTEMD_UNIT_DIR/$_PV_UNIT" ] || return 0
+  _pv_docker_others "" && return 0
+  _bad "$SYSTEMD_UNIT_DIR/$_PV_UNIT present, but no enclave wants docker"
 }
 
 _pv_check_docker() {

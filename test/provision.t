@@ -253,6 +253,7 @@ fgt() {
     SEVERANCE_SHARE_ROOT="$T/run" TMPDIR="$T/tmp" \
     SUBUID="$T/subuid" SUBGID="$T/subgid" LINGER_DIR="$T/linger" \
     TMPFILES_DIR="$T/tmpfiles" WC_PROFILES_DIR="$T/profiles" \
+    SYSTEMD_UNIT_DIR="$T/units" LOGIN_DEFS="$T/login.defs" \
     PATH="$T/bin:$PATH" ${DRY+SEVERANCE_DRYRUN=1} ${GONE+GONE=$GONE} \
     sh "$SEV" forget "$@"
 }
@@ -313,4 +314,26 @@ ls "$HR" | grep -q '^alice-acme\.retired-' ||
   fail "the retired home lost its contents"
 [ -f "$ED/acme" ] || fail "a plain forget removed the record"
 
-pass "add, provision, renders, forget (retire, purge, verified), privilege"
+# --- the docker template exists exactly while some enclave wants it ---------
+# Left behind once by a run that predated docker teardown, and noticed only
+# because it was in the way. Now purging the LAST docker enclave removes it,
+# and check names a stray one.
+rm -f "$ED/beta" "$ED/gamma"
+cp "$HERE/share/units/severance-dockerd@.service" "$T/units/"
+printf 'owner=alice\n' > "$ED/delta"         # docker defaults to yes
+DRY=1; out=$(fgt acme --purge 2>&1) || fail "purge (dry) failed: $out"
+printf '%s\n' "$out" | grep -q "rm -f $T/units/severance-dockerd@" &&
+  fail "the template was removed while delta still wants docker"
+rm -f "$ED/delta"
+out=$(fgt acme --purge 2>&1) || fail "purge (dry) failed: $out"
+want "dry-run: rm -f $T/units/severance-dockerd@.service" \
+  "purging the last docker enclave left the template"
+unset DRY
+# Only a docker=no enclave left (the dry purge removed nothing for real).
+rm -f "$ED/acme"
+printf 'owner=alice\ndocker=no\n' > "$ED/quiet"
+out=$(env SEVERANCE_ENCLAVES_DIR="$ED" SYSTEMD_UNIT_DIR="$T/units" \
+  PATH="$T/bin:$PATH" NO_COLOR=1 sh "$SEV" enclave check 2>&1) || :
+want "present, but no enclave wants docker" "check missed a stray template"
+
+pass "add, provision, renders, forget, docker template lifecycle, privilege"

@@ -186,8 +186,13 @@ right and wrong ways to become the enclave and the machinery may grow:
   target on such a setup.
 - The enclave's session environment (display and audio socket paths, its
   docker host) is written ONCE, into the enclave's own `environment.d`, by
-  severance, because every value derives from the enclave name. Terminal
-  entry and launched apps then see the same environment.
+  severance, because every value derives from the enclave name. CORRECTION:
+  that file is read by the enclave's USER MANAGER, for what it starts; a
+  `sudo -i` login shell is started by sudo, not by the manager, and is not
+  expected to see it (being measured). So `work` BRINGS THE ENVIRONMENT
+  OVER when it enters: it reads the manager's environment
+  (`systemctl --user show-environment`) or the same file, and starts the
+  shell with it. One more reason `work` exists rather than bare sudo.
 
 ## Provisioning and teardown
 
@@ -212,7 +217,9 @@ BUILT: `enclave add`, `enclave provision`, `enclave check`, and enclave
 the root-owned install into /etc/systemd/system when it differs and enables
 one instance per `docker=yes` enclave, after linger; `DOCKER_HOST` goes into
 the enclave's environment.d; `docker=no` turns an enabled instance off;
-`forget` stops it before removing the account.
+`forget` stops it before removing the account. The TEMPLATE exists exactly
+while some enclave wants docker: purging the last one removes it, and
+`enclave check` names a stray one.
 
 severance owns the mechanism; an integrator decides which enclaves exist and
 provisions the tools and config inside one (a second identity's own pins and
