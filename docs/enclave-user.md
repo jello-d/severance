@@ -266,8 +266,11 @@ Each change is a `docs/breaking-changes.md` entry.
 2. DECIDED: registry records are written by a severance verb run as root,
    which the integrator's root-scope provisioning calls.
 3. DECIDED AND BUILT: the shared install, above.
-4. CAMERAS: device access always (group) or only while the login user's
-   session is active (ACL). The integrator's call.
+4. DECIDED: cameras and the GPU render node by group (`video`, `render`),
+   always. Following the owner's active session would need a custom
+   service and still leave the camera open with the screen locked;
+   PipeWire camera access through the owner's session is the intended
+   successor, once Electron and Chrome support it without a flag.
 5. THE DISPLAY HELPER: language and dependencies; it is one protocol
    request plus keeping a file descriptor open.
 6. THE REPO AUDIT (`git_remote_glob`): a work-remote clone on the personal
