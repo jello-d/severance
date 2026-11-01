@@ -44,6 +44,20 @@ want 'QUOTED=[say "hi" there]'
 want "$T/h"
 [ -e "$T/evaluated" ] && fail "a value was EXECUTED, not exported as data"
 
+# A NON-login sudo (how `work run` arrives) opens no session: the runtime
+# dir is supplied from the account's own /run/user/<uid> when it exists.
+_rt=/run/user/$(id -u)
+if [ -d "$_rt" ] && [ -O "$_rt" ]; then
+  out=$(env -i HOME="$T/h" PATH=/usr/bin:/bin sh "$WS" \
+    sh -c 'echo "$XDG_RUNTIME_DIR"' 2>/dev/null)
+  [ "$out" = "$_rt" ] || fail "XDG_RUNTIME_DIR not supplied: '$out'"
+  if [ -S "$_rt/bus" ]; then
+    out=$(env -i HOME="$T/h" PATH=/usr/bin:/bin sh "$WS" \
+      sh -c 'echo "$DBUS_SESSION_BUS_ADDRESS"' 2>/dev/null)
+    [ "$out" = "unix:path=$_rt/bus" ] || fail "session bus not supplied: $out"
+  fi
+fi
+
 # No SEVERANCE_ENCLAVE (an unprovisioned account): a warning, not silence.
 rm -f "$T/h/.config/environment.d/50-severance.conf"
 err=$(env -i HOME="$T/h" PATH=/usr/bin:/bin sh "$WS" true 2>&1 >/dev/null)

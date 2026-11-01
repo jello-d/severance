@@ -140,8 +140,17 @@ _work_enclave() {
       "(polkit) is not built yet." >&2
     return 1
   fi
-  [ "$mode" = run ] || echo "work: $prof (as $EN_ACCOUNT); 'exit' to leave" >&2
-  exec sudo -iu "$EN_ACCOUNT" "$_h" "$@"
+  # RUN does NOT use -i. `sudo -i` hands the command to the enclave's LOGIN
+  # SHELL as a string and escapes everything except `$`, so that shell would
+  # expand variables in the user's command, before work-session has brought
+  # the environment in. Measured: `work run e -- sh -c 'echo $X'` printed
+  # nothing for a set X. Plain -u passes the argv verbatim; work-session
+  # supplies the session paths a non-login sudo lacks.
+  if [ "$mode" = run ]; then
+    exec sudo -H -u "$EN_ACCOUNT" -- "$_h" "$@"
+  fi
+  echo "work: $prof (as $EN_ACCOUNT); 'exit' to leave" >&2
+  exec sudo -iu "$EN_ACCOUNT" "$_h"
 }
 
 mode=enter

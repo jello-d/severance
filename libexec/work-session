@@ -48,6 +48,16 @@ for _l in $_env; do export "$_l"; done
 IFS=$_ifs
 set +f
 
+# `work run` arrives through a NON-login sudo (so its argv is not re-parsed
+# by a shell), which opens no session: supply the runtime dir and the session
+# bus from the account's own lingering session when they are missing.
+_rt=/run/user/$(id -u)
+if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "$_rt" ] && [ -O "$_rt" ]; then
+  export XDG_RUNTIME_DIR="$_rt"
+fi
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/x}/bus" ]
+then export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"; fi
+
 [ -n "${SEVERANCE_ENCLAVE:-}" ] ||
   echo "work-session: WARN no SEVERANCE_ENCLAVE in environment.d" \
     "(has the enclave been provisioned?)" >&2

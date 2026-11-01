@@ -202,8 +202,11 @@ rc=0; work enter acme </dev/null >/dev/null 2>&1 || rc=$?
 case $(cat "$T/sudo-argv") in *SSH_AUTH_SOCK*|*WAYLAND*|*DISPLAY*)
   fail "enclave entry forwarded a personal session resource" ;; esac
 rc=0; work run acme -- make test </dev/null >/dev/null 2>&1 || rc=$?
-[ "$(cat "$T/sudo-argv")" = "$want make test" ] ||
-  fail "enclave run argv: '$(cat "$T/sudo-argv")'"
+# RUN must not go through a login shell (`-i` re-parses the command and
+# leaves `$` unescaped, so the enclave's shell would expand it first).
+wantr="-H -u $ME-acme -- $T/sys/share/severance/libexec/work-session"
+[ "$(cat "$T/sudo-argv")" = "$wantr make test" ] ||
+  fail "enclave run argv: '$(cat "$T/sudo-argv")', want '$wantr make test'"
 # Bare `work` with an enclave of mine AND a profile, no default: it asks.
 rc=0; out=$(work </dev/null 2>&1) || rc=$?
 [ "$rc" = 1 ] || fail "bare work with an enclave AND a profile: rc=$rc"
