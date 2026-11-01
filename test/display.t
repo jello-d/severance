@@ -51,7 +51,7 @@ WFP=$!
 # "$T"` is the shape that once removed a working tree.
 _C="'$T'"
 # shellcheck disable=SC2064
-trap "kill $WFP 2>/dev/null; rm -rf $_C" EXIT INT TERM
+trap "kill $WFP 2>/dev/null || :; rm -rf $_C" EXIT INT TERM
 
 WLD= i=0
 while [ -z "$WLD" ] && [ "$i" -lt 100 ]; do
