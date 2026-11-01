@@ -120,7 +120,13 @@ LOGIN user's side; the enclave only ever connects.
   screen capture, no clipboard reading, no synthetic input, and window
   capture of the enclave's OWN windows only, so screen sharing from an
   enclave browser shows that enclave and nothing else. The allowlist is the
-  compositor's job; this package only creates the socket. UNTIL THE
+  compositor's job; this package only creates the socket. BUILT:
+  libexec/severance-display (standard-library Python, the wire protocol
+  directly), run by the user-unit template severance-display@<enclave>,
+  which provision renders for its own install, places root-owned and
+  enables globally; an ExecCondition lets only the owner run it. Proven
+  against a private headless wayfire: a client on the socket sees exactly
+  the allowlist. UNTIL THE
   COMPOSITOR SUPPORTS THE ALLOWLIST, ENCLAVES GET NO DISPLAY AT ALL; there is
   no interim "open the socket" fallback.
 - AUDIO: one pulse address for the enclave, with ordinary access. The

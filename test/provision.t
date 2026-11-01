@@ -121,16 +121,29 @@ esac
 EOF2
 printf 'carol:100000:65536\nother:165536:65536\n' > "$T/subuid"
 cp "$T/subuid" "$T/subgid"
-mkdir -p "$T/linger" "$T/tmpfiles" "$T/units"
+mkdir -p "$T/linger" "$T/tmpfiles" "$T/units" "$T/userunits"
 printf '#!/bin/sh\n' > "$T/dockerd-rootless.sh"
 chmod +x "$T/dockerd-rootless.sh"
 printf 'UID_MIN 1000\n' > "$T/login.defs"
+# ONE systemctl stub for every case below, defined before the first call
+# so nothing queries the real systemd: "inactive / not enabled" unless
+# listed. user@990 is alice-acme's running manager; alice-off's docker is
+# enabled (for the docker=no case).
+cat > "$T/bin/systemctl" <<'EOF2'
+#!/bin/sh
+case "$1 $2 $3" in
+  "is-active --quiet user@990.service") exit 0 ;;
+  "is-enabled --quiet severance-dockerd@alice-off.service") exit 0 ;;
+esac
+exit 3
+EOF2
+chmod +x "$T/bin/systemctl"
 prov() {
   env SEVERANCE_ENCLAVES_DIR="$ED" SEVERANCE_DRYRUN=1 TMPDIR="$T/tmp" \
     ${SEV_DEVICE_GROUPS+SEV_DEVICE_GROUPS="$SEV_DEVICE_GROUPS"} \
     SUBUID="$T/subuid" SUBGID="$T/subgid" LINGER_DIR="$T/linger" \
     TMPFILES_DIR="$T/tmpfiles" LOGIN_DEFS="$T/login.defs" \
-    SYSTEMD_UNIT_DIR="$T/units" \
+    SYSTEMD_UNIT_DIR="$T/units" SYSTEMD_USER_UNIT_DIR="$T/userunits" \
     DOCKERD_ROOTLESS="${DRL:-$T/dockerd-rootless.sh}" \
     PATH="$T/bin:$PATH" sh "$SEV" enclave provision "$@"
 }
@@ -180,8 +193,16 @@ want "dry-run: systemctl enable --now severance-dockerd@alice-newe.service" \
 _dk=$(printf '%s\n' "$out" | grep -n 'enable --now severance-dockerd' |
   cut -d: -f1)
 [ "$_dk" -gt "$_lg" ] || fail "docker (line $_dk) starts before linger"
+# DISPLAY: the user-unit template, rendered for THIS install, enabled
+# globally per enclave.
+want "$T/userunits/severance-display@.service" \
+  "the display unit template is not installed"
+want "dry-run: systemctl --global enable severance-display@newe.service" \
+  "the enclave's display unit is not enabled"
 # No rootless extras: refused by name rather than a unit that cannot start.
-rc=0; DRL=$T/none prov newe >/dev/null 2>"$T/err" || rc=$?
+DRL=$T/none
+rc=0; prov newe >/dev/null 2>"$T/err" || rc=$?
+unset DRL
 [ "$rc" = 1 ] && grep -q 'rootless-extras' "$T/err" ||
   fail "a box without rootless docker was not refused: $(cat "$T/err")"
 
@@ -190,17 +211,8 @@ grep -q '^alice-acme:' "$T/subuid" || {
   echo 'alice-acme:231072:65536' >> "$T/subuid"
   echo 'alice-acme:231072:65536' >> "$T/subgid"; }
 : > "$T/linger/alice-acme"
-# Its user manager is RUNNING (stub), so a rewritten environment.d must be
-# followed by a reload, or it waits for a reboot.
-cat > "$T/bin/systemctl" <<'EOF2'
-#!/bin/sh
-case "$1 $2 $3" in
-  "is-active --quiet user@990.service") exit 0 ;;
-  "is-enabled --quiet severance-dockerd@alice-off.service") exit 0 ;;
-esac
-exit 3
-EOF2
-chmod +x "$T/bin/systemctl"
+# Its user manager is RUNNING (the stub says so), so a rewritten
+# environment.d must be followed by a reload, or it waits for a reboot.
 out=$(prov acme) || fail "provision of a provisioned enclave failed: $out"
 want "dry-run: runuser -u alice-acme -- env XDG_RUNTIME_DIR=/run/user/990 \
 systemctl --user daemon-reload" "a running session is not reloaded"
@@ -226,6 +238,7 @@ rm -f "$ED/newe" "$ED/reg" "$ED/grp" "$ED/orphan"
 # --- the renders: who may reach the share dir, and what the session sees ------
 render() {   # <enclave> <function>
   env SEV_LIB="$HERE/lib" SEVERANCE_SELF="$SEV" SEVERANCE_ENCLAVES_DIR="$ED" \
+    SEVERANCE_SHARE="$HERE/share" \
     PATH="$T/bin:$PATH" sh -c '. "$SEV_LIB/common_lib"
     . "$SEV_LIB/provision_lib"; en_load "$1" && "$2"' _ "$1" "$2"
 }
@@ -234,6 +247,14 @@ render() {   # <enclave> <function>
   fail "share dir line wrong: $(render acme _pv_render_share)"
 [ "$(render acme _pv_render_parent)" = "d /run/severance 0755 root root -" ] ||
   fail "share parent line wrong"
+du=$(render acme _pv_render_display)
+printf '%s\n' "$du" | grep -qx \
+  "ExecStart=$HERE/libexec/severance-display %i" ||
+  fail "the display unit does not run THIS install's helper: $du"
+printf '%s\n' "$du" | grep -qF "test -w /run/severance/%i" ||
+  fail "the display unit is not limited to the enclave's owner"
+printf '%s\n' "$du" | grep -q '@[A-Z_]*@' &&
+  fail "an unrendered placeholder survived in the display unit"
 env_out=$(render acme _pv_render_env)
 for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
          PULSE_SERVER=unix:/run/severance/acme/pulse \
@@ -266,6 +287,7 @@ fgt() {
     SUBUID="$T/subuid" SUBGID="$T/subgid" LINGER_DIR="$T/linger" \
     TMPFILES_DIR="$T/tmpfiles" WC_PROFILES_DIR="$T/profiles" \
     SYSTEMD_UNIT_DIR="$T/units" LOGIN_DEFS="$T/login.defs" \
+    SYSTEMD_USER_UNIT_DIR="$T/userunits" \
     PATH="$T/bin:$PATH" ${DRY+SEVERANCE_DRYRUN=1} ${GONE+GONE=$GONE} \
     sh "$SEV" forget "$@"
 }
@@ -276,6 +298,8 @@ want "dry-run: mv $HR/alice-acme $HR/alice-acme.retired-" \
 want "dry-run: chown -R root:root $HR/alice-acme.retired-" \
   "the retired home is not taken away from the freed uid"
 want "dry-run: userdel alice-acme" "the account is not removed"
+want "dry-run: systemctl --global disable severance-display@acme.service" \
+  "forget leaves the enclave's display unit enabled"
 _dd=$(printf '%s\n' "$out" |
   grep -n 'disable --now severance-dockerd@alice-acme' | cut -d: -f1)
 _ud=$(printf '%s\n' "$out" | grep -n 'dry-run: userdel' | cut -d: -f1)
@@ -336,6 +360,7 @@ ls "$HR" | grep -q '^alice-acme\.retired-' ||
 # and check names a stray one.
 rm -f "$ED/beta" "$ED/gamma"
 cp "$HERE/share/units/severance-dockerd@.service" "$T/units/"
+: > "$T/userunits/severance-display@.service"
 printf 'owner=alice\n' > "$ED/delta"         # docker defaults to yes
 DRY=1; out=$(fgt acme --purge 2>&1) || fail "purge (dry) failed: $out"
 printf '%s\n' "$out" | grep -q "rm -f $T/units/severance-dockerd@" &&
@@ -344,11 +369,14 @@ rm -f "$ED/delta"
 out=$(fgt acme --purge 2>&1) || fail "purge (dry) failed: $out"
 want "dry-run: rm -f $T/units/severance-dockerd@.service" \
   "purging the last docker enclave left the template"
+want "dry-run: rm -f $T/userunits/severance-display@.service" \
+  "purging the last enclave left the display template"
 unset DRY
 # Only a docker=no enclave left (the dry purge removed nothing for real).
 rm -f "$ED/acme"
 printf 'owner=alice\ndocker=no\n' > "$ED/quiet"
 out=$(env SEVERANCE_ENCLAVES_DIR="$ED" SYSTEMD_UNIT_DIR="$T/units" \
+  SYSTEMD_USER_UNIT_DIR="$T/userunits" \
   PATH="$T/bin:$PATH" NO_COLOR=1 sh "$SEV" enclave check 2>&1) || :
 want "present, but no enclave wants docker" "check missed a stray template"
 

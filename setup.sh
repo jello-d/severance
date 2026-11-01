@@ -152,7 +152,9 @@ _payload_stage() {
   # that cannot find its profiles, at a path that looks installed. Checked
   # before the swap, so a failed copy leaves the live payload untouched.
   for _r in bin/severance bin/work lib/work-context_lib share/tools \
-            share/units/severance-dockerd@.service libexec/work-session; do
+            share/units/severance-dockerd@.service libexec/work-session \
+            share/units/severance-display@.service \
+            libexec/severance-display; do
     if [ ! -e "$_ps_new/$_r" ]; then
       bad "staged payload is missing $_r"
       rm -rf -- "$_ps_new"

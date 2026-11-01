@@ -122,6 +122,8 @@ LINGER_DIR=${LINGER_DIR:-/var/lib/systemd/linger}
 SYSTEMD_UNIT_DIR=${SYSTEMD_UNIT_DIR:-/etc/systemd/system}
 DOCKERD_ROOTLESS=${DOCKERD_ROOTLESS:-/usr/bin/dockerd-rootless.sh}
 _PV_UNIT=severance-dockerd@.service
+SYSTEMD_USER_UNIT_DIR=${SYSTEMD_USER_UNIT_DIR:-/etc/systemd/user}
+_PV_DISPLAY=severance-display@.service
 # Device groups every enclave account joins: the GPU render node and the
 # cameras. Decided 2026-11-01: by group, always. Cameras carry the uaccess
 # tag, which ACLs them only to the owner of the seat's active session, and
@@ -169,6 +171,7 @@ _pv_provision_one() {
   _pv_environment || return 1
   _pv_linger || return 1
   _pv_docker || return 1
+  _pv_display || return 1
 }
 
 # The account: system range, its own user-private group, the owner's shell
@@ -327,6 +330,7 @@ _pv_check() {   # [name...]
     _pv_check_ids
     _pv_check_share
     _pv_check_docker
+    _pv_check_display
   done
   return "$REPORT_RC"
 }
@@ -409,15 +413,29 @@ _pv_forget() {   # <name> <purge 0|1>
   else
     echo "  account $EN_ACCOUNT already absent"
   fi
+  _pv_owner_session stop "severance-display@$1.service"
+  _pv_do systemctl --global disable "severance-display@$1.service" \
+    2>/dev/null || :
   _pv_unshare
   [ "$2" = 1 ] || { echo "  record kept: $SEV_ENCLAVES_DIR/$1"; return 0; }
   _pv_do rm -f "$SEV_ENCLAVES_DIR/$1"
   echo "  record removed"
+  if ! _pv_any_others "$1" &&
+     [ -e "$SYSTEMD_USER_UNIT_DIR/$_PV_DISPLAY" ]; then
+    _pv_do rm -f "$SYSTEMD_USER_UNIT_DIR/$_PV_DISPLAY"
+    echo "  removed $_PV_DISPLAY (no enclave left)"
+  fi
   _pv_docker_others "$1" && return 0
   [ -e "$SYSTEMD_UNIT_DIR/$_PV_UNIT" ] || return 0
   _pv_do rm -f "$SYSTEMD_UNIT_DIR/$_PV_UNIT"
   _pv_do systemctl daemon-reload
   echo "  removed $_PV_UNIT (no docker enclave left)"
+}
+
+# Is any enclave OTHER than <name> declared at all?
+_pv_any_others() {   # <name>
+  for _pv_o in $(en_names); do [ "$_pv_o" = "$1" ] || return 0; done
+  return 1
 }
 
 # Does any enclave OTHER than <name> still want docker? The template exists
@@ -549,4 +567,61 @@ _pv_check_docker() {
   if systemctl is-active --quiet "$_pv_inst" 2>/dev/null; then
     _ok "$_pv_inst active"
   else _bad "$_pv_inst not active"; fi
+}
+
+# --- display: the enclave's restricted display socket, in the OWNER's session
+# A user-unit template, rendered with where THIS shared install lives (so a
+# relocated or scratch install points at itself), placed root-owned into the
+# system user-unit dir, and enabled globally per enclave; its ExecCondition
+# lets only the owner run it. Started at once in the owner's running
+# graphical session, if there is one.
+_pv_render_display() {
+  _pv_root=${SEVERANCE_SELF%/bin/*}
+  sed -e "s#@LIBEXEC@#$_pv_root/libexec#" \
+      -e "s#@SHARE_ROOT@#$SEV_SHARE_ROOT#" \
+      "$SEVERANCE_SHARE/units/$_PV_DISPLAY"
+}
+
+_pv_display() {
+  _pv_dst=$SYSTEMD_USER_UNIT_DIR/$_PV_DISPLAY
+  _pv_t=$(mktemp) || return 1
+  _pv_render_display > "$_pv_t" || { rm -f "$_pv_t"; return 1; }
+  if ! cmp -s "$_pv_t" "$_pv_dst"; then
+    _pv_do install -m 0644 -o root -g root "$_pv_t" "$_pv_dst" || {
+      rm -f "$_pv_t"; return 1; }
+    echo "severance: installed $_pv_dst"
+  fi
+  rm -f "$_pv_t"
+  _pv_inst=severance-display@$EN_NAME.service
+  if ! systemctl --global is-enabled --quiet "$_pv_inst" 2>/dev/null; then
+    _pv_do systemctl --global enable "$_pv_inst" || return 1
+    echo "severance: $_pv_inst enabled for graphical sessions"
+  fi
+  _pv_owner_session start "$_pv_inst"
+}
+
+# Act on a user unit in the OWNER's running graphical session, as the owner;
+# nothing to do when there is none (it starts with the next one).
+_pv_owner_session() {   # start|stop <unit>
+  _pv_ou=$(getent passwd "$EN_OWNER" | cut -d: -f3)
+  [ -n "$_pv_ou" ] || return 0
+  systemctl is-active --quiet "user@$_pv_ou.service" 2>/dev/null ||
+    return 0
+  _pv_oe="XDG_RUNTIME_DIR=/run/user/$_pv_ou"
+  runuser -u "$EN_OWNER" -- env "$_pv_oe" systemctl --user is-active \
+    --quiet graphical-session.target 2>/dev/null || return 0
+  _pv_do runuser -u "$EN_OWNER" -- env "$_pv_oe" systemctl --user \
+    daemon-reload || :
+  _pv_do runuser -u "$EN_OWNER" -- env "$_pv_oe" systemctl --user "$1" \
+    "$2" || echo "severance: WARN could not $1 $2 in $EN_OWNER's session" >&2
+}
+
+_pv_check_display() {
+  if _pv_render_display | cmp -s - "$SYSTEMD_USER_UNIT_DIR/$_PV_DISPLAY"
+  then _ok "$_PV_DISPLAY current"
+  else _bad "$_PV_DISPLAY missing or stale in $SYSTEMD_USER_UNIT_DIR"; fi
+  if systemctl --global is-enabled --quiet \
+       "severance-display@$EN_NAME.service" 2>/dev/null; then
+    _ok "severance-display@$EN_NAME enabled for graphical sessions"
+  else _bad "severance-display@$EN_NAME not enabled"; fi
 }

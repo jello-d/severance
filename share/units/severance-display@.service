@@ -1,0 +1,28 @@
+# Managed by severance (docs/enclave-user.md). A USER unit: the enclave's
+# restricted display socket, opened in its OWNER's graphical session by
+# libexec/severance-display. The instance name is the enclave. Rendered by
+# `severance enclave provision` (it fills in where the shared install lives)
+# into /etc/systemd/user, root-owned, and enabled globally per enclave.
+#
+# Globally enabled means EVERY user's session considers it, so the
+# ExecCondition lets only the owner run it: only the owner can write the
+# enclave's share dir (<owner>:<account> 0710). Anyone else skips it, quietly.
+#
+# Exit 3 means "this compositor cannot do it" (no security-context plugin)
+# and exit 2 a usage or protocol error: neither is retried, so a missing
+# plugin is one clear failure rather than a restart loop. A compositor that
+# went away (exit 1) is retried.
+[Unit]
+Description=severance: the restricted display socket for enclave %i
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecCondition=/bin/sh -c 'test -w @SHARE_ROOT@/%i'
+ExecStart=@LIBEXEC@/severance-display %i
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=2 3
+
+[Install]
+WantedBy=graphical-session.target

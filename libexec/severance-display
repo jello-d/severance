@@ -139,8 +139,9 @@ def find_manager(wire, registry):
                 found["name"], found["version"] = gname, version
     wire.roundtrip(on_event)
     if "name" not in found:
+        # 3: this compositor cannot do it. Not retried by the unit.
         die("the compositor offers no %s (is the security-context plugin "
-            "loaded?)" % MANAGER)
+            "loaded?)" % MANAGER, 3)
     return found["name"]
 
 
