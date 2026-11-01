@@ -99,4 +99,88 @@ rc=0; out=$(env -u SEVERANCE_ENCLAVES_DIR PATH="$T/bin:$PATH" sh "$SEV" \
 [ "$rc" = 1 ] || fail "root from a user-writable install exited $rc"
 case $out in *"not root-owned"*) ;; *) fail "no reason: $out" ;; esac
 
-pass "add: declare, current, refusals, owner change, posix, privilege"
+# --- provision (dry-run): what it would do, and what it refuses -------------
+# Every box path points into T. getent knows: the owner alice (shell ksh);
+# alice-acme, a system account in its own group (provisioned); alice-reg, a
+# REGULAR uid; alice-grp, a system uid whose group is not its own.
+cat > "$T/bin/getent" <<'EOF2'
+#!/bin/sh
+case "$1 $2" in
+  "passwd alice") echo 'alice:x:1000:1000::/home/alice:/bin/ksh' ;;
+  "passwd alice-acme"|"passwd 990")
+    echo 'alice-acme:x:990:990::/home/alice-acme:/bin/ksh' ;;
+  "passwd alice-reg") echo 'alice-reg:x:1500:1500::/home/alice-reg:/bin/sh' ;;
+  "passwd alice-grp") echo 'alice-grp:x:991:100::/home/alice-grp:/bin/sh' ;;
+  "group 990") echo 'alice-acme:x:990:' ;;
+  "group 1500") echo 'alice-reg:x:1500:' ;;
+  "group 100") echo 'users:x:100:' ;;
+  *) exit 2 ;;
+esac
+EOF2
+printf 'carol:100000:65536\nother:165536:65536\n' > "$T/subuid"
+cp "$T/subuid" "$T/subgid"
+mkdir -p "$T/linger" "$T/tmpfiles"
+printf 'UID_MIN 1000\n' > "$T/login.defs"
+prov() {
+  env SEVERANCE_ENCLAVES_DIR="$ED" SEVERANCE_DRYRUN=1 TMPDIR="$T/tmp" \
+    SUBUID="$T/subuid" SUBGID="$T/subgid" LINGER_DIR="$T/linger" \
+    TMPFILES_DIR="$T/tmpfiles" LOGIN_DEFS="$T/login.defs" \
+    PATH="$T/bin:$PATH" sh "$SEV" enclave provision "$@"
+}
+for e in newe reg grp; do printf 'owner=alice\n' > "$ED/$e"; done
+printf 'owner=nobody-here\n' > "$ED/orphan"
+
+out=$(prov newe) || fail "provision of a new enclave failed: $out"
+want() {   # <fixed string> <why>
+  printf '%s\n' "$out" | grep -qF -- "$1" || fail "$2; got: $out"
+}
+want "dry-run: useradd --system --user-group --create-home --home-dir \
+/home/alice-newe --shell /bin/ksh --comment severance enclave newe alice-newe" \
+  "the account is not created as a system account with its own group"
+want "dry-run: usermod --add-subuids 231072-296607 alice-newe" \
+  "the subuid block is not the next free one"
+want "dry-run: usermod --add-subgids 231072-296607 alice-newe" \
+  "the subgid block is not the next free one"
+want "dry-run: loginctl enable-linger alice-newe" "linger is not enabled"
+want "$T/tmpfiles/severance-newe.conf" "the share dir is not declared"
+want "dry-run: runuser -u alice-newe" \
+  "environment.d is not written AS THE ACCOUNT"
+
+# Already provisioned: nothing is created or allocated again.
+grep -q '^alice-acme:' "$T/subuid" || {
+  echo 'alice-acme:231072:65536' >> "$T/subuid"
+  echo 'alice-acme:231072:65536' >> "$T/subgid"; }
+: > "$T/linger/alice-acme"
+out=$(prov acme) || fail "provision of a provisioned enclave failed: $out"
+printf '%s\n' "$out" | grep -E 'dry-run: (useradd|usermod|loginctl)' &&
+  fail "an already-provisioned enclave was provisioned again: $out"
+
+# Accounts that are NOT ours are refused, never adopted.
+nope() {   # <enclave> <stderr must say> <why>
+  rc=0; prov "$1" >/dev/null 2>"$T/err" || rc=$?
+  [ "$rc" = 1 ] || fail "$3: exit $rc"
+  grep -q "$2" "$T/err" || fail "$3: $(cat "$T/err")"
+}
+nope reg "a REGULAR account" "a regular-range account of that name"
+nope grp "not its own" "an account whose primary group is shared"
+nope orphan "is not an account here" "an owner with no account"
+rm -f "$ED/newe" "$ED/reg" "$ED/grp" "$ED/orphan"
+
+# --- the renders: who may reach the share dir, and what the session sees ------
+render() {   # <enclave> <function>
+  env SEV_LIB="$HERE/lib" SEVERANCE_SELF="$SEV" SEVERANCE_ENCLAVES_DIR="$ED" \
+    PATH="$T/bin:$PATH" sh -c '. "$SEV_LIB/common_lib"
+    . "$SEV_LIB/provision_lib"; en_load "$1" && "$2"' _ "$1" "$2"
+}
+[ "$(render acme _pv_render_share)" = \
+  "d /run/severance/acme 0710 alice alice-acme -" ] ||
+  fail "share dir line wrong: $(render acme _pv_render_share)"
+[ "$(render acme _pv_render_parent)" = "d /run/severance 0755 root root -" ] ||
+  fail "share parent line wrong"
+env_out=$(render acme _pv_render_env)
+for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
+         PULSE_SERVER=unix:/run/severance/acme/pulse; do
+  printf '%s\n' "$env_out" | grep -qx "$l" || fail "environment lacks $l"
+done
+
+pass "add, provision (dry-run), renders, refusals, posix, privilege"

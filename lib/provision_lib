@@ -40,9 +40,12 @@ sev_enclave() {
   _pv_sub=${1:-}
   [ "$#" -gt 0 ] && shift
   case $_pv_sub in
-    add) _pv_add "$@" ;;
+    add)       _pv_add "$@" ;;
+    provision) _pv_provision "$@" ;;
+    check)     _pv_check "$@" ;;
     *) echo "usage: severance enclave add <name> owner=<user> [key=val ...]" \
          >&2
+       echo "       severance enclave provision|check [name ...]" >&2
        return 2 ;;
   esac
 }
@@ -105,4 +108,217 @@ _pv_owner_change() {   # <name> <new owner>
   echo "  $EN_ACCOUNT exists; changing the owner would orphan it. Run" >&2
   echo "  'severance forget $1' first." >&2
   return 1
+}
+
+# --- provision: make a declared enclave real ----------------------------------
+# `severance enclave provision [name...]` (every registry enclave when none is
+# named). Idempotent: each step checks before it acts and says which it did.
+# SEVERANCE_DRYRUN prints the mutating commands instead of running them.
+LOGIN_DEFS=${LOGIN_DEFS:-/etc/login.defs}
+SUBUID=${SUBUID:-/etc/subuid}
+SUBGID=${SUBGID:-/etc/subgid}
+TMPFILES_DIR=${TMPFILES_DIR:-/etc/tmpfiles.d}
+LINGER_DIR=${LINGER_DIR:-/var/lib/systemd/linger}
+
+_pv_do() {
+  if [ -n "${SEVERANCE_DRYRUN:-}" ]; then echo "dry-run: $*"; return 0; fi
+  "$@"
+}
+
+# The first uid a REGULAR user gets; below it is the system range.
+_pv_uid_min() {
+  awk '$1 == "UID_MIN" { v = $2 } END { print (v ? v : 1000) }' \
+    "$LOGIN_DEFS" 2>/dev/null || echo 1000
+}
+
+_pv_provision() {   # [name...]
+  _pv_privileged "enclave provision" || return 1
+  [ "$#" -gt 0 ] || set -- $(en_names)
+  _pv_rc=0
+  for _pv_e in "$@"; do
+    if en_load "$_pv_e" && _pv_provision_one; then
+      echo "severance: enclave '$_pv_e' provisioned ($EN_ACCOUNT)"
+    else
+      echo "severance: enclave '$_pv_e' provisioning FAILED" >&2; _pv_rc=1
+    fi
+  done
+  return "$_pv_rc"
+}
+
+_pv_provision_one() {
+  getent passwd "$EN_OWNER" >/dev/null 2>&1 || {
+    echo "severance: owner '$EN_OWNER' is not an account here" >&2
+    return 1; }
+  _pv_account || return 1
+  _pv_subids uid "$SUBUID" --add-subuids || return 1
+  _pv_subids gid "$SUBGID" --add-subgids || return 1
+  _pv_linger || return 1
+  _pv_share_dir || return 1
+  _pv_environment || return 1
+}
+
+# The account: system range, its own user-private group, the owner's shell
+# (so `sudo -i` feels like home), home 0700. An EXISTING account of that name
+# must already look exactly like ours, or it is not ours to adopt.
+_pv_account() {
+  if ! getent passwd "$EN_ACCOUNT" >/dev/null 2>&1; then
+    _pv_sh=$(getent passwd "$EN_OWNER" | cut -d: -f7)
+    _pv_do useradd --system --user-group --create-home \
+      --home-dir "$EN_HOME" --shell "${_pv_sh:-/bin/sh}" \
+      --comment "severance enclave $EN_NAME" "$EN_ACCOUNT" || return 1
+    echo "severance: created account $EN_ACCOUNT"
+    [ -n "${SEVERANCE_DRYRUN:-}" ] && return 0
+  fi
+  _pv_ent=$(getent passwd "$EN_ACCOUNT")
+  _pv_u=$(echo "$_pv_ent" | cut -d: -f3)
+  _pv_g=$(getent group "$(echo "$_pv_ent" | cut -d: -f4)" | cut -d: -f1)
+  if [ "$_pv_u" -ge "$(_pv_uid_min)" ]; then
+    echo "severance: $EN_ACCOUNT is uid $_pv_u, a REGULAR account; an" >&2
+    echo "  enclave account is system range. Not adopting it." >&2
+    return 1
+  fi
+  [ "$_pv_g" = "$EN_ACCOUNT" ] || {
+    echo "severance: $EN_ACCOUNT's primary group is '$_pv_g', not its own" >&2
+    return 1; }
+  [ "$(echo "$_pv_ent" | cut -d: -f6)" = "$EN_HOME" ] || {
+    echo "severance: $EN_ACCOUNT's home is not $EN_HOME" >&2; return 1; }
+  _pv_do chmod 0700 "$EN_HOME"
+}
+
+# Subordinate ids for rootless containers: the next free 65536 block past
+# every existing allocation. (runner_lib keeps its own copy until the group
+# model is retired with it.)
+_pv_subids() {   # uid|gid <file> <usermod flag>
+  if grep -q "^$EN_ACCOUNT:" "$2" 2>/dev/null; then return 0; fi
+  _pv_r=$(awk -F: 'BEGIN{m=100000}{e=$2+$3; if(e>m)m=e}
+    END{printf "%d-%d\n", m, m+65535}' "$2" 2>/dev/null) ||
+    _pv_r=100000-165535
+  _pv_do usermod "$3" "$_pv_r" "$EN_ACCOUNT" || return 1
+  echo "severance: $EN_ACCOUNT $1 range $_pv_r"
+}
+
+# Linger keeps the enclave's user manager up, so a launched app has a
+# session to land in. Safe because the account is system range: a session
+# gate on `!@system` keeps its manager off the sound card.
+_pv_linger() {
+  [ -e "$LINGER_DIR/$EN_ACCOUNT" ] && return 0
+  _pv_do loginctl enable-linger "$EN_ACCOUNT" || return 1
+  echo "severance: $EN_ACCOUNT lingers"
+}
+
+# The share dir: owned by the OWNER, group the account's own, 0710, so the
+# enclave can traverse to a socket it names and nothing else, and only the
+# owner's session creates sockets there. Two tmpfiles fragments, so the
+# common parent is declared once however many enclaves exist. PURE renders,
+# so a test pins the modes without root.
+_pv_render_parent() {
+  printf 'd %s 0755 root root -\n' "$SEV_SHARE_ROOT"
+}
+_pv_render_share() {
+  printf 'd %s 0710 %s %s -\n' "$EN_SHARE" "$EN_OWNER" "$EN_ACCOUNT"
+}
+_pv_tmpfile() {   # <path> <render function>
+  _pv_t=$(mktemp) || return 1
+  "$2" > "$_pv_t"
+  if cmp -s "$_pv_t" "$1"; then rm -f "$_pv_t"; return 0; fi
+  _pv_do install -m 0644 -o root -g root "$_pv_t" "$1" || {
+    rm -f "$_pv_t"; return 1; }
+  rm -f "$_pv_t"
+  echo "severance: wrote $1"
+}
+_pv_share_dir() {
+  _pv_tmpfile "$TMPFILES_DIR/severance.conf" _pv_render_parent || return 1
+  _pv_tmpfile "$TMPFILES_DIR/severance-$EN_NAME.conf" _pv_render_share ||
+    return 1
+  _pv_do systemd-tmpfiles --create "$TMPFILES_DIR/severance.conf" \
+    "$TMPFILES_DIR/severance-$EN_NAME.conf"
+}
+
+# The enclave session's environment, ONE file in its own environment.d,
+# because every value derives from the enclave name. Written AS THE ACCOUNT:
+# the directory is the enclave's, and root writing into a directory its
+# owner controls can be steered by a planted symlink to any file on the box.
+_pv_render_env() {
+  echo "# Written by severance for enclave $EN_NAME; re-written on every"
+  echo "# provision. Change the enclave record, not this file."
+  echo "SEVERANCE_ENCLAVE=$EN_NAME"
+  echo "WAYLAND_DISPLAY=$EN_SHARE/wayland-0"
+  echo "PULSE_SERVER=unix:$EN_SHARE/pulse"
+}
+_pv_environment() {
+  _pv_ed=$EN_HOME/.config/environment.d
+  _pv_t=$(mktemp) || return 1
+  _pv_render_env > "$_pv_t"
+  # Read back as the account too, for the same reason.
+  if [ -z "${SEVERANCE_DRYRUN:-}" ] &&
+     runuser -u "$EN_ACCOUNT" -- cat "$_pv_ed/50-severance.conf" 2>/dev/null |
+       cmp -s "$_pv_t" -; then
+    rm -f "$_pv_t"; return 0
+  fi
+  chmod 0644 "$_pv_t"
+  _pv_do runuser -u "$EN_ACCOUNT" -- sh -c 'mkdir -p "$1" &&
+    cat > "$1/50-severance.conf.new" &&
+    mv -f "$1/50-severance.conf.new" "$1/50-severance.conf"' _ "$_pv_ed" \
+    < "$_pv_t" || { rm -f "$_pv_t"; return 1; }
+  rm -f "$_pv_t"
+  echo "severance: wrote $_pv_ed/50-severance.conf"
+}
+
+# --- check: is each declared enclave what provision makes? --------------------
+# Read-only and runnable unprivileged; what only root can see inside the
+# 0700 home is reported UNVERIFIABLE rather than guessed. Markers fold into
+# REPORT_RC like every other check.
+_pv_check() {   # [name...]
+  echo "== severance enclaves (one account per enclave) =="
+  [ "$#" -gt 0 ] || set -- $(en_names)
+  [ "$#" -gt 0 ] || { _ok "no enclaves declared"; return 0; }
+  for _pv_e in "$@"; do
+    echo "-- $_pv_e --"
+    if ! en_load "$_pv_e"; then _bad "$_pv_e: record does not parse"
+      continue; fi
+    _pv_check_account
+    _pv_check_ids
+    _pv_check_share
+  done
+  return "$REPORT_RC"
+}
+
+_pv_check_account() {
+  if [ "$EN_UID" = - ]; then _bad "$EN_ACCOUNT: account missing"; return; fi
+  if [ "$EN_UID" -lt "$(_pv_uid_min)" ]; then
+    _ok "$EN_ACCOUNT: system uid $EN_UID"
+  else _bad "$EN_ACCOUNT: uid $EN_UID is in the REGULAR range"; fi
+  _pv_gid=$(getent passwd "$EN_ACCOUNT" | cut -d: -f4)
+  if [ "$(getent group "$_pv_gid" | cut -d: -f1)" = "$EN_ACCOUNT" ]; then
+    _ok "$EN_ACCOUNT: its own primary group"
+  else _bad "$EN_ACCOUNT: primary group is not its own"; fi
+  _pv_hs=$(stat -c '%U %a' "$EN_HOME" 2>/dev/null || echo missing)
+  if [ "$_pv_hs" = "$EN_ACCOUNT 700" ]; then _ok "$EN_HOME: 0700, its own"
+  else _bad "$EN_HOME: $_pv_hs, want '$EN_ACCOUNT 700'"; fi
+}
+
+_pv_check_ids() {
+  if grep -q "^$EN_ACCOUNT:" "$SUBUID" 2>/dev/null &&
+     grep -q "^$EN_ACCOUNT:" "$SUBGID" 2>/dev/null; then
+    _ok "$EN_ACCOUNT: subuid and subgid ranges"
+  else _bad "$EN_ACCOUNT: subordinate id range missing"; fi
+  if [ -e "$LINGER_DIR/$EN_ACCOUNT" ]; then _ok "$EN_ACCOUNT: lingers"
+  else _bad "$EN_ACCOUNT: linger is off"; fi
+}
+
+_pv_check_share() {
+  if _pv_render_share | cmp -s - "$TMPFILES_DIR/severance-$EN_NAME.conf" &&
+     _pv_render_parent | cmp -s - "$TMPFILES_DIR/severance.conf"; then
+    _ok "share dir declared ($TMPFILES_DIR)"
+  else _bad "share dir tmpfiles missing or stale"; fi
+  _pv_ss=$(stat -c '%U %G %a' "$EN_SHARE" 2>/dev/null || echo missing)
+  if [ "$_pv_ss" = "$EN_OWNER $EN_ACCOUNT 710" ]; then
+    _ok "$EN_SHARE: $EN_OWNER:$EN_ACCOUNT 0710"
+  else _bad "$EN_SHARE: $_pv_ss, want '$EN_OWNER $EN_ACCOUNT 710'"; fi
+  if [ "$(id -u)" != 0 ]; then
+    _ok "environment.d unverifiable here (inside a 0700 home; run as root)"
+  elif _pv_render_env | cmp -s - \
+       "$EN_HOME/.config/environment.d/50-severance.conf"; then
+    _ok "environment.d current"
+  else _bad "environment.d missing or stale (re-run provision)"; fi
 }

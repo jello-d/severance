@@ -44,6 +44,9 @@ usage: severance <command> [args]
   enclaves                   the enclave REGISTRY, one line per enclave
   enclave add <name> owner=<user> [key=val..]
                              declare an enclave in the registry (as root)
+  enclave provision [name..] make declared enclaves real: account, subids,
+                             linger, share dir, environment (as root)
+  enclave check [name..]     audit them; non-zero on drift
   init   <name> [key=val..]  scaffold a new profile record
   seal   [profile...]        provision the work boundary (privileged)
   runner [profile...]        provision the rootless-docker runner (privileged)
