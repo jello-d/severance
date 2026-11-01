@@ -188,8 +188,9 @@ right and wrong ways to become the enclave and the machinery may grow:
   docker host) is written ONCE, into the enclave's own `environment.d`, by
   severance, because every value derives from the enclave name. CORRECTION:
   that file is read by the enclave's USER MANAGER, for what it starts; a
-  `sudo -i` login shell is started by sudo, not by the manager, and is not
-  expected to see it (being measured). So `work` BRINGS THE ENVIRONMENT
+  `sudo -i` login shell is started by sudo, not by the manager, and does
+  NOT see it. Measured: DOCKER_HOST is set in the manager and in a unit it
+  starts, and absent in a `sudo -iu` shell. So `work` BRINGS THE ENVIRONMENT
   OVER when it enters: it reads the manager's environment
   (`systemctl --user show-environment`) or the same file, and starts the
   shell with it. One more reason `work` exists rather than bare sudo.
