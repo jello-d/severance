@@ -54,10 +54,11 @@ tools | grep -q '^#' && fail "a comment line was emitted as a row"
 tools | grep -q '^ *$' && fail "a blank line was emitted as a row"
 
 # --- a drop-in ADDS a tool, without touching the shipped file --------------
-# This is the valet-key case: it is tackup's tool, not severance's, so it must
-# be addable without editing a file severance owns.
+# This is the valet-key case: an integrator's tool, not severance's, so it
+# must be addable without editing a file severance owns.
 before=$(tools | wc -l)
-printf '# tackup\nvalet-key VALET_KEY_POOL_ROOT valet-key-pool no\n' > "$D/50-x"
+printf '# an integrator\nvalet-key VALET_KEY_POOL_ROOT valet-key-pool no\n' \
+  > "$D/50-x"
 [ "$(field valet-key 2)" = VALET_KEY_POOL_ROOT ] || fail "drop-in did not add"
 [ "$(tools | wc -l)" -eq $((before + 1)) ] || fail "drop-in changed other rows"
 cmp -s "$SHARE/tools" "$SHARE/tools" || fail "impossible"

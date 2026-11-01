@@ -237,7 +237,7 @@ if [ "$(id -u)" != 0 ]; then
 fi
 
 # --- a PUBLISHED shared command is not ALSO linked in the user prefix -------
-# tackup SV18: once an integrator publishes /usr/local/bin/severance (here
+# Once an integrator publishes /usr/local/bin/severance (here
 # SEVERANCE_SHARED_BIN), the provisioner's dedup removes a ~/.local copy, so
 # the user install must neither re-create it nor fail its check without it,
 # or the publish is rolled back. `work` stays user-only throughout.

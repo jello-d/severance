@@ -5,8 +5,8 @@
 # subordinate-id allocator, and BOTH check paths (--seal / --runner) driven to
 # drift. No group, ACL, user, or /etc change touches the box.
 #
-# This is the package's own behavioral coverage. When a host provisioner (e.g.
-# tackup) drives severance as a thin delegator, its module tests shrink to
+# This is the package's own behavioral coverage. When a host provisioner
+# drives severance as a thin delegator, its module tests shrink to
 # delegation smokes and this is where the real coverage lives.
 set -eu
 
@@ -143,7 +143,7 @@ cat > "$T/bin/getfacl" <<EOF
 [ -f "$T/no_oacl" ] || printf 'default:other::---\n'
 EOF
 printf '#!/bin/sh\necho tester\n' > "$T/bin/id"
-printf '<!-- Managed by tackup -->\nx\n' > "$R/enc/CLAUDE.md"
+printf '<!-- Managed by an integrator -->\nx\n' > "$R/enc/CLAUDE.md"
 cp "$R/enc/CLAUDE.md" "$T/home/wt/CLAUDE.md"
 printf '#!/bin/sh\n[ "$1" = -n ] && shift\nexec "$@"\n' > "$T/bin/sudo"
 chmod +x "$T/bin"/*

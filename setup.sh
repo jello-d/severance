@@ -22,12 +22,12 @@
 # THE INSTALL PLACES A COPY AND NEVER LINKS BACK INTO THE SOURCE (the fleet's
 # place-not-link law, 2026-10-01; shared-notes/_install-placement.md). It used
 # to leave five ~/.local symlinks pointing into the source tree, and on a
-# provisioned box that source is the `pkg` clone under ~/.cache/tackup/pkgs,
+# provisioned box that source is a provisioner's pinned clone in a cache,
 # which is re-cloned on every sweep and wiped on demand. So all five were
 # dangling links waiting for a cache wipe, and for THIS package that is not a
 # cosmetic failure: `work` is the sole sudo entry point, `severance guard` is
-# what a consumer calls in order to be REFUSED, and the reader every tackup
-# module sources was reached through ~/.local/libexec/severance. A guard that
+# what a consumer calls in order to be REFUSED, and the reader integrators
+# source was reached through ~/.local/libexec/severance. A guard that
 # cannot be executed does not refuse anything.
 #
 # WHY bin, lib, libexec, share AND man ALL LIVE INSIDE THE ONE PAYLOAD:
@@ -101,7 +101,7 @@ _ln()   { mkdir -p "$(dirname "$2")"; ln -sfn "$1" "$2"; }
 # not ALSO put it on PATH: a typed command lives on PATH exactly once, and
 # the provisioner's dedup removes a ~/.local copy of a published one. A
 # shared command that is NOT published is linked here as before, so a box
-# without the shared install keeps working. (hwdp's recipe; tackup SV18.)
+# without the shared install keeps working.
 _published() {   # <cmd>
   case " $SYSTEM_TOOLS " in *" $1 "*) ;; *) return 1 ;; esac
   [ -L "$SHARED_BIN/$1" ] || return 1
