@@ -1,9 +1,10 @@
 #!/bin/sh
-# test/pipewire-access.t - share/wireplumber, the per-enclave PipeWire access
-# policy, end to end against a PRIVATE PipeWire and a private STOCK
+# test/pipewire-access.t - the per-enclave PipeWire socket: the conf render
+# (libexec/severance-pipewire-conf) and the access policy (share/wireplumber),
+# end to end against a PRIVATE PipeWire and a private STOCK
 # WirePlumber (device monitors off) that loads the shipped fragment and
-# script exactly as an integrator would place them. Two enclave sockets, a
-# and b, each tagged as its socket declares; video test patterns only.
+# script exactly as an integrator would place them. Three registered
+# enclaves, each tagged as its socket declares; video test patterns only.
 # Every daemon, socket and config lives under the scratch dir and a private
 # session bus; nothing touches the owner's audio. Skipped, saying so,
 # without pipewire, wireplumber, pw-dump or gst-launch-1.0.
@@ -31,27 +32,40 @@ trap 'kill $PIDS 2>/dev/null || :; rm -rf '"$_C" EXIT INT TERM
 mkdir -m 0700 "$T/run"
 WC=$T/config/wireplumber/wireplumber.conf.d
 mkdir -p "$T/config/pipewire" "$WC" "$T/data/wireplumber/scripts" \
-  "$T/state" "$T/share/a" "$T/share/b"
+  "$T/state" "$T/share/acme" "$T/share/bravo"
 export XDG_RUNTIME_DIR="$T/run" XDG_CONFIG_HOME="$T/config"
 export XDG_DATA_HOME="$T/data" XDG_STATE_HOME="$T/state"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$T/bus" GIO_USE_VFS=local
 unset PIPEWIRE_REMOTE PULSE_SERVER PIPEWIRE_RUNTIME_DIR
 
-# The SOCKETS, as an integrator renders them into the owner's pipewire.conf:
-# the stock file with one tagged socket per enclave added.
-python3 -I - "$STOCK" "$T" > "$T/config/pipewire/pipewire.conf" <<'PYEOF'
-import sys
-stock, t = sys.argv[1:3]
-s = open(stock).read()
-old = '#sockets = [ { name = "pipewire-0" }, { name = "pipewire-0-manager" } ]'
-if old not in s:
-    sys.exit("the stock sockets line moved")
-sock = ('{ name = "%s/share/%s/pipewire-0" mode = "0666" props = '
-        '{ pipewire.client.access = "severance-%s" } }')
-new = ('sockets = [ { name = "pipewire-0" } { name = "pipewire-0-manager" }\n'
-       + sock % (t, "a", "a") + "\n" + sock % (t, "b", "b") + " ]")
-sys.stdout.write(s.replace(old, new, 1))
-PYEOF
+# The SOCKETS: libexec/severance-pipewire-conf renders the owner's
+# pipewire.conf, as it would at PipeWire's start, from three registered
+# enclaves. `gone` has NO share dir, as after a forget: PipeWire refuses to
+# start at all if a socket's directory is missing, so the render must skip
+# it, and the daemon starting below is the proof that it did.
+export SEVERANCE_ENCLAVES_DIR="$T/enclaves" SEVERANCE_SHARE_ROOT="$T/share"
+mkdir -p "$T/enclaves"
+for n in acme bravo gone; do
+  echo "owner=$(id -un)" > "$T/enclaves/$n"
+done
+CONF=$T/rendered/pipewire.conf
+"$HERE/libexec/severance-pipewire-conf" "$CONF" 2> "$T/render.err" ||
+  fail "the render failed: $(cat "$T/render.err")"
+grep -q "plus 2 enclave socket(s): acme bravo" "$T/render.err" ||
+  fail "the render did not list exactly acme and bravo: $(cat "$T/render.err")"
+grep -q '"severance-gone"' "$CONF" &&
+  fail "the render names an enclave whose share dir does not exist"
+# FAILS TOWARD AUDIO: a stock file without the expected line is written
+# back unchanged, with a reason, and still exits 0.
+printf 'context.properties = {}\n' > "$T/odd.conf"
+SEVERANCE_PIPEWIRE_STOCK=$T/odd.conf \
+  "$HERE/libexec/severance-pipewire-conf" "$T/fb/pipewire.conf" \
+  2> "$T/fb.err" || fail "the fallback exited non-zero"
+cmp -s "$T/odd.conf" "$T/fb/pipewire.conf" ||
+  fail "the fallback did not write the stock file unchanged"
+grep -q "FALLING BACK TO STOCK" "$T/fb.err" ||
+  fail "the fallback was silent"
+
 cp "$HERE/share/wireplumber/wireplumber.conf.d/50-severance-access.conf" "$WC"
 cp "$HERE/share/wireplumber/scripts/severance-access.lua" \
   "$T/data/wireplumber/scripts/"
@@ -79,15 +93,15 @@ dbus-daemon --session --nofork --address="$DBUS_SESSION_BUS_ADDRESS" \
   > /dev/null 2>&1 &
 PIDS="$PIDS $!"
 waitfor '[ -S "$T/bus" ]' "the private bus"
-pipewire > "$T/pw.log" 2>&1 &
+pipewire -c "$CONF" > "$T/pw.log" 2>&1 &
 PIDS="$PIDS $!"
-SA=$T/share/a/pipewire-0 SB=$T/share/b/pipewire-0
+SA=$T/share/acme/pipewire-0 SB=$T/share/bravo/pipewire-0
 waitfor '[ -S "$SA" ] && [ -S "$SB" ]' "the enclave sockets"
 WIREPLUMBER_DEBUG=3 wireplumber > "$T/wp.log" 2>&1 &
 PIDS="$PIDS $!"
 waitfor 'grep -q "severance-access" "$T/wp.log"' "the script to load"
 
-for n in a b own; do
+for n in acme bravo own; do
   _r=; [ "$n" = own ] || _r=$T/share/$n/pipewire-0
   env ${_r:+PIPEWIRE_REMOTE="$_r"} gst-launch-1.0 -q videotestsrc \
     is-live=true ! video/x-raw,width=160,height=120 ! \
@@ -104,7 +118,7 @@ for o in json.load(sys.stdin):
     if p.get("node.name") == sys.argv[1]:
         print(p.get("object.serial")); break' "$1"
 }
-waitfor '[ -n "$(serial sev-a)" ] && [ -n "$(serial sev-b)" ] &&
+waitfor '[ -n "$(serial sev-acme)" ] && [ -n "$(serial sev-bravo)" ] &&
   [ -n "$(serial sev-own)" ]' "the test sources"
 reads() {   # <remote or ""> <target> <seconds>
   timeout "$3" env ${1:+PIPEWIRE_REMOTE="$1"} gst-launch-1.0 -q \
@@ -112,23 +126,24 @@ reads() {   # <remote or ""> <target> <seconds>
     target-object="$2" num-buffers=10 ! fakesink > /dev/null 2>&1
 }
 
-reads "$SA" sev-a 10 || fail "enclave a cannot read its OWN source"
-reads "$SB" sev-b 10 || fail "enclave b cannot read its OWN source"
+reads "$SA" sev-acme 10 || fail "enclave acme cannot read its OWN source"
+reads "$SB" sev-bravo 10 || fail "enclave bravo cannot read its OWN source"
 # The control: reading by serial works here, so the refusals below are the
 # policy and not the harness.
 reads "" "$(serial sev-own)" 10 ||
   fail "control: the owner cannot read its own source by serial"
 reads "$SA" "$(serial sev-own)" 4 &&
-  fail "enclave a READ the owner's source by serial"
-reads "$SA" "$(serial sev-b)" 4 &&
-  fail "enclave a READ enclave b's source by serial"
+  fail "enclave acme READ the owner's source by serial"
+reads "$SA" "$(serial sev-bravo)" 4 &&
+  fail "enclave acme READ enclave bravo's source by serial"
 seen=$(timeout 5 env PIPEWIRE_REMOTE="$SA" pw-dump 2>/dev/null |
   python3 -I -c '
 import json, sys
 n = [((o.get("info") or {}).get("props") or {}).get("node.name", "")
      for o in json.load(sys.stdin)]
 print(" ".join(sorted(x for x in n if x)))')
-[ "$seen" = sev-a ] || fail "enclave a sees nodes other than its own: $seen"
-grep -q "admitted client .* as severance-a" "$T/wp.log" ||
+[ "$seen" = sev-acme ] ||
+  fail "enclave acme sees nodes other than its own: $seen"
+grep -q "admitted client .* as severance-acme" "$T/wp.log" ||
   fail "the script never logged admitting an enclave client"
-pass "own source read, owner's and other enclave's refused by serial"
+pass "missing dir skipped, stock fallback; others refused by serial"

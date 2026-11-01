@@ -1,0 +1,121 @@
+#!/usr/bin/python3 -I
+"""severance-pipewire-conf <out>: the owner's pipewire.conf, with one native
+socket per enclave, rendered IMMEDIATELY BEFORE PipeWire starts.
+
+Each enclave whose share dir EXISTS and belongs to the caller gets
+
+    { name = "<share>/pipewire-0" mode = "0666"
+      props = { pipewire.client.access = "severance-<enclave>" } }
+
+beside the stock pipewire-0 and pipewire-0-manager. The tag is what
+share/wireplumber/scripts/severance-access.lua keys on (docs/enclave-user.md).
+
+WHY AT START, AND WHY ONLY DIRS THAT EXIST: PipeWire REFUSES TO START when any
+socket's directory is missing (measured: "unable to open lockfile ...
+failed to create context"), so a render naming an enclave whose share dir
+has gone, after a forget, would cost the owner ALL audio at the next login.
+Deciding at start from the dirs present makes that impossible. An enclave
+provisioned while PipeWire runs gets its socket at the next restart.
+
+FAILS TOWARD AUDIO: on any error this writes the stock file unchanged and
+says why on stderr (the unit's journal), exiting 0, so the owner keeps sound
+and the enclaves lose only their video socket. A full render rather than a
+drop-in because PipeWire does not merge a fragment into the native protocol
+module's arguments. Run it as an ExecStartPre and start `pipewire -c <out>`.
+"""
+
+import os
+import subprocess
+import sys
+
+STOCK = [os.environ.get("SEVERANCE_PIPEWIRE_STOCK", ""),
+         "/etc/pipewire/pipewire.conf", "/usr/share/pipewire/pipewire.conf"]
+ANCHOR = ('#sockets = [ { name = "pipewire-0" }, '
+          '{ name = "pipewire-0-manager" } ]')
+SOCKET = ('{{ name = "{path}" mode = "0666"\n'
+          '                  props = {{ pipewire.client.access = '
+          '"severance-{name}" }} }}')
+HERE = os.path.dirname(os.path.realpath(__file__))
+
+
+def warn(msg):
+    print("severance-pipewire-conf: " + msg, file=sys.stderr)
+
+
+def stock():
+    for p in STOCK:
+        if p and os.path.isfile(p):
+            with open(p) as f:
+                return p, f.read()
+    raise RuntimeError("no stock pipewire.conf found")
+
+
+def enclaves():
+    """(name, share dir) for every enclave whose share dir is ours now."""
+    r = subprocess.run([os.path.join(HERE, "..", "bin", "severance"),
+                        "enclaves"], capture_output=True, text=True,
+                       timeout=20)
+    if r.returncode != 0:
+        warn("severance enclaves exited %d, using what it listed: %s"
+             % (r.returncode, r.stderr.strip()))
+    out = []
+    for line in r.stdout.splitlines():
+        f = line.split("\t")
+        if len(f) != 5:
+            warn("ignored a malformed enclaves line: %r" % line)
+            continue
+        name, share = f[0], f[4]
+        try:
+            st = os.stat(share)
+        except OSError:
+            continue
+        if st.st_uid != os.getuid():
+            continue
+        if len(os.path.join(share, "pipewire-0")) > 100:
+            warn("%s: socket path too long for a unix socket" % name)
+            continue
+        out.append((name, share))
+    return out
+
+
+def render(text, found):
+    if ANCHOR not in text:
+        raise RuntimeError("the stock sockets line is not where expected")
+    socks = ['{ name = "pipewire-0" }', '{ name = "pipewire-0-manager" }']
+    socks += [SOCKET.format(path=os.path.join(s, "pipewire-0"), name=n)
+              for n, s in found]
+    return text.replace(ANCHOR, "sockets = [ " +
+                        "\n                ".join(socks) + " ]", 1)
+
+
+def write(out, text):
+    os.makedirs(os.path.dirname(out) or ".", mode=0o700, exist_ok=True)
+    tmp = out + ".new"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, out)
+
+
+def main(argv):
+    if len(argv) != 2 or not os.path.isabs(argv[1]):
+        print("usage: severance-pipewire-conf <absolute output path>",
+              file=sys.stderr)
+        return 2
+    try:
+        src, text = stock()
+    except (OSError, RuntimeError) as e:
+        warn("cannot render at all: %s" % e)
+        return 1
+    try:
+        found = enclaves()
+        text = render(text, found)
+        warn("%s plus %d enclave socket(s): %s" % (
+            src, len(found), " ".join(n for n, _ in found) or "none"))
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+        warn("FALLING BACK TO STOCK, no enclave sockets: %s" % e)
+    write(argv[1], text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

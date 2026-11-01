@@ -56,6 +56,7 @@ for _f in bin/severance bin/work lib/work-context_lib share/tools \
           share/units/severance-notify-owner@.service \
           share/units/severance-notify-enclave@.service \
           share/wireplumber/scripts/severance-access.lua \
+          libexec/severance-pipewire-conf \
           share/wireplumber/wireplumber.conf.d/50-severance-access.conf; do
   [ -e "$PAY/$_f" ] || fail "payload is missing $_f"
 done

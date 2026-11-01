@@ -156,9 +156,16 @@ LOGIN user's side; the enclave only ever connects.
   visible sink exposes its monitor, so audio keeps the pulse socket.
   BUILT AND TESTED: test/pipewire-access.t runs a private PipeWire and a
   stock WirePlumber with the shipped files, two enclaves and an owner
-  source. The sockets themselves are the integrator's: they must be added
-  to a full render of the login user's `pipewire.conf`, since PipeWire
-  does not merge a drop-in into the native protocol module's arguments.
+  source. THE SOCKETS: libexec/severance-pipewire-conf renders the login
+  user's whole `pipewire.conf` (PipeWire does not merge a drop-in into the
+  native protocol module's arguments) and is meant to run IMMEDIATELY
+  BEFORE PipeWire starts, with PipeWire then started on its output. It
+  lists only enclaves whose share dir exists and belongs to the caller at
+  that moment, because PipeWire refuses to start at all when a socket's
+  directory is missing: a render made earlier would cost the login user
+  ALL audio after a forget. On any error it writes the stock file and
+  says why, so the login user keeps sound and enclaves lose only video.
+  Wiring it into the login user's PipeWire unit is the integrator's.
 - NOTIFICATIONS: see the relay, below.
 
 ## The notification relay (owned here)
