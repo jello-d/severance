@@ -179,6 +179,13 @@ number could only claim.
   error); **2** could not answer (the pid is malformed or names no live
   process).
 - `severance guard`: exit 0 ok, 1 refuse; the message goes to stderr.
+- `severance enclaves`: the enclave REGISTRY (`/etc/severance/enclaves`),
+  one line per enclave, TAB-separated: name, account, uid (`-` until the
+  account exists), home, share dir. Exit **0** means the list is complete;
+  **1** means a record could not be read (named on stderr) while the
+  readable ones are still printed, so a consumer must not act on it as a
+  complete list. Part of the one-account-per-enclave model being built
+  (`docs/enclave-user.md`); nothing provisions those accounts yet.
 
 There is deliberately nothing else. `show --shell` (an eval-able dump of every
 `WC_*`) was advertised here as a third stable contract and had no consumers at

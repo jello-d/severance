@@ -69,11 +69,16 @@ names are not secret. One record per enclave, `key=value`, parsed and never
 sourced, as today:
 
     # /etc/severance/enclaves/acme
+    owner=alice                    # REQUIRED: the login user it belongs to
     git_remote_glob=*acme*         # optional: the repo-consistency audit
     docker=yes                     # optional, default yes
 
-The account name, home and share dir DERIVE from the name and the login
-user, so they are not stored twice. uid is read from passwd, never recorded.
+The account name, home and share dir DERIVE from the name and the owner, so
+they are not stored twice. uid is read from passwd, never recorded. `owner`
+is a key, not "whoever runs this", because the account name has to come out
+the same whether root, the owner or the enclave asks; it also lets a second
+person on the box own enclaves of their own. BUILT: the reader and
+`severance enclaves` (lib/enclave_lib, test/enclaves.t).
 
 ### Why docker stays a system unit
 

@@ -1,0 +1,123 @@
+# enclave_lib - the ENCLAVE REGISTRY reader, for the one-account-per-enclave
+# model (docs/enclave-user.md). Sourced by bin/severance via common_lib.
+#
+# One record per enclave at $SEV_ENCLAVES_DIR/<name>, root-owned and
+# world-readable, because BOTH identities must read it: the login user, and
+# the enclave account, which cannot read the login user's home. Parsed, never
+# sourced. Unknown keys fail loud.
+#
+#   owner=alice            REQUIRED: the login user the enclave belongs to
+#   git_remote_glob=*acme* optional: the repo-consistency audit
+#   docker=yes|no          optional, default yes
+#
+# Everything else DERIVES, so no fact is stored twice:
+#   EN_ACCOUNT  <owner>-<name>          EN_HOME   /home/<account>
+#   EN_SHARE    $SEV_SHARE_ROOT/<name>  EN_UID    from passwd, `-` if absent
+# `owner` is a key rather than "whoever runs this" because the account name
+# must come out the same whether root, the owner or the enclave asks.
+
+SEV_ENCLAVES_DIR=${SEVERANCE_ENCLAVES_DIR:-/etc/severance/enclaves}
+SEV_SHARE_ROOT=${SEVERANCE_SHARE_ROOT:-/run/severance}
+
+# An enclave name is its PUBLISHED IDENTITY: a path component, part of an
+# account name, and the token `current` hands to consumers that use it as a
+# socket name or namespace. So it is a DNS label: lowercase alphanumeric and
+# hyphen, no leading or trailing hyphen, 63 max, the intersection all of
+# those accept. One rule for profile and enclave names alike.
+en_label_ok() {   # <name>
+  case $1 in
+    ''|*[!a-z0-9-]*|-*|*-) return 1 ;;
+  esac
+  [ "${#1}" -le 63 ]
+}
+
+# A login user name as useradd accepts it by default.
+_en_user_ok() {   # <name>
+  case $1 in
+    ''|[!a-z_]*|*[!a-z0-9_-]*) return 1 ;;
+  esac
+}
+
+# Record names, one per line. A missing dir is no enclaves, not an error.
+en_names() {
+  [ -d "$SEV_ENCLAVES_DIR" ] || return 0
+  for _en_f in "$SEV_ENCLAVES_DIR"/*; do
+    [ -f "$_en_f" ] && printf '%s\n' "${_en_f##*/}"
+  done
+}
+
+en_reset() {
+  EN_NAME= EN_OWNER= EN_ACCOUNT= EN_HOME= EN_SHARE= EN_UID=
+  EN_DOCKER= EN_GIT_REMOTE_GLOB=
+}
+
+# Load one record into EN_*. Returns 1 when there is no such record, 2 when
+# it is malformed (the reason on stderr), 0 otherwise. EN_* are empty after
+# any failure, so a caller cannot act on a half-read record.
+en_load() {   # <name>
+  en_reset
+  _en_f=$SEV_ENCLAVES_DIR/$1
+  en_label_ok "$1" || {
+    echo "severance: enclave name '$1' is not a DNS label" \
+      "(a-z, 0-9, hyphen; no leading or trailing hyphen; 63 max)" >&2
+    return 2; }
+  [ -r "$_en_f" ] || {
+    echo "severance: no such enclave: $1" >&2; return 1; }
+  _en_owner= _en_glob= _en_docker=yes
+  while IFS='=' read -r _en_k _en_v; do
+    _en_v=${_en_v%"${_en_v##*[![:space:]]}"}
+    case $_en_k in
+      ''|\#*) ;;
+      owner)           _en_owner=$_en_v ;;
+      git_remote_glob) _en_glob=$_en_v ;;
+      docker)          _en_docker=$_en_v ;;
+      *) echo "severance: unknown key '$_en_k' ($_en_f)" >&2; return 2 ;;
+    esac
+  done < "$_en_f"
+  _en_check "$1" "$_en_f" || return 2
+  EN_NAME=$1 EN_OWNER=$_en_owner EN_ACCOUNT=$_en_owner-$1
+  EN_HOME=/home/$EN_ACCOUNT EN_SHARE=$SEV_SHARE_ROOT/$1
+  EN_DOCKER=$_en_docker EN_GIT_REMOTE_GLOB=$_en_glob
+  EN_UID=$(getent passwd "$EN_ACCOUNT" 2>/dev/null | cut -d: -f3)
+  [ -n "$EN_UID" ] || EN_UID=-
+}
+
+# The parsed values' rules, apart from the parse. Reasons on stderr.
+_en_check() {   # <name> <file>
+  if [ -z "$_en_owner" ]; then
+    echo "severance: missing owner ($2)" >&2; return 1
+  fi
+  _en_user_ok "$_en_owner" || {
+    echo "severance: owner '$_en_owner' is not a user name ($2)" >&2
+    return 1; }
+  case $_en_docker in
+    yes|no) ;;
+    *) echo "severance: docker must be yes or no ($2)" >&2; return 1 ;;
+  esac
+  # useradd refuses a name over 32 characters, so catch it here, by name,
+  # rather than at provisioning time as a bare useradd error.
+  _en_acct=$_en_owner-$1
+  [ "${#_en_acct}" -le 32 ] || {
+    echo "severance: account '$_en_acct' is over 32 characters ($2)" >&2
+    return 1; }
+}
+
+# `severance enclaves`: the MACHINE INTERFACE every integrator derives from.
+# One line per enclave, tab-separated: name, account, uid, home, share dir.
+# Exit 0 means the list is COMPLETE. A record that cannot be read is named on
+# stderr and makes the exit 1, while the readable ones are still printed: a
+# consumer must not treat a non-zero list as complete, because acting on it
+# (say, revoking what an absent enclave was granted) would act on a gap.
+sev_enclaves() {
+  [ "$#" -eq 0 ] || { echo "usage: severance enclaves" >&2; return 2; }
+  _en_rc=0
+  for _en_n in $(en_names); do
+    if en_load "$_en_n"; then
+      printf '%s\t%s\t%s\t%s\t%s\n' "$EN_NAME" "$EN_ACCOUNT" "$EN_UID" \
+        "$EN_HOME" "$EN_SHARE"
+    else
+      _en_rc=1
+    fi
+  done
+  return "$_en_rc"
+}

@@ -11,6 +11,7 @@
 : "${SEV_LIB:?common_lib: SEV_LIB unset (source via bin/severance)}"
 
 . "$SEV_LIB/work-context_lib"        # wc_load / wc_profiles / wc_current / WC_*
+. "$SEV_LIB/enclave_lib"             # en_load / en_names / en_label_ok / EN_*
 
 # Provisioning reads profile records from the runtime dir by default; a host
 # delegator can point us at its own records via SEVERANCE_PROFILES_DIR (e.g. a

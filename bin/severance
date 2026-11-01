@@ -41,6 +41,7 @@ usage: severance <command> [args]
   use    <profile>|--clear   set (or clear) the default-profile marker
   current [PID]              which enclave a process is IN (profile name, or
                              nothing); non-zero only if it cannot tell
+  enclaves                   the enclave REGISTRY, one line per enclave
   init   <name> [key=val..]  scaffold a new profile record
   seal   [profile...]        provision the work boundary (privileged)
   runner [profile...]        provision the rootless-docker runner (privileged)
@@ -61,6 +62,11 @@ spelling fails loud rather than being quietly aliased:
                              process is in no enclave); exit 2 = could NOT
                              answer (bad pid, or no such process)
   guard                      exit 0 ok / 1 refuse. Message on stderr.
+  enclaves                   one line per enclave, TAB-separated: name,
+                             account, uid (- until created), home, share
+                             dir. exit 0 = the list is COMPLETE; exit 1 = a
+                             record could not be read (named on stderr), and
+                             the list must not be treated as complete
 There is deliberately nothing else. `show` is a human report, not a contract.
 EOF
   exit 2
@@ -75,6 +81,7 @@ case $cmd in
   show)    . "$SEV_LIB/profile_lib"; sev_show "$@" ;;
   use)     . "$SEV_LIB/profile_lib"; sev_use "$@" ;;
   current) . "$SEV_LIB/profile_lib"; sev_current "$@" ;;
+  enclaves) sev_enclaves "$@" ;;
   init)    . "$SEV_LIB/profile_lib"; sev_init "$@" ;;
   seal)    sev_sudo_prime; . "$SEV_LIB/seal_lib";   sev_seal "$@" ;;
   runner)  sev_sudo_prime; . "$SEV_LIB/runner_lib"; sev_runner "$@" ;;
