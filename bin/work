@@ -25,8 +25,12 @@
 # `severance current`, on the config/admin/query binary, so a consumer needs to
 # know about one command rather than two.
 #
-# A subshell with an added group + env; nothing persists. Reads the severance
-# profiles via work-context_lib. Sole sudo entry point for the boundary.
+# TWO MODELS during the transition (docs/enclave-user.md). An ENCLAVE (a
+# record in the registry) is entered AS ITS OWN ACCOUNT: `sudo -iu
+# <account>` runs libexec/work-session from the shared install, which brings
+# in the enclave's environment.d and becomes the shell or command. Nothing
+# personal crosses. A group-model PROFILE is a subshell with an added group
+# + env, as below. Sole sudo entry point for the boundary.
 set -eu
 
 self=$(command -v -- "$0" 2>/dev/null || printf '%s\n' "$0")
@@ -71,6 +75,75 @@ usage() {
   exit 2
 }
 
+# With no target named: the default marker, else the only candidate. A box
+# with BOTH an enclave of yours and a profile, and no default, is asked to
+# name one, rather than silently entering whichever model wc_load prefers.
+_work_pick() {
+  [ -n "$prof" ] && return 0
+  [ "${WORK_REEXEC:-}" = 1 ] && return 0
+  if [ -r "$WC_DEFAULT_FILE" ]; then
+    IFS= read -r prof < "$WC_DEFAULT_FILE" || :
+    [ -n "$prof" ] && return 0
+  fi
+  _mine= _nm=0 _me=$(id -un)
+  for _e in $(en_names); do
+    en_load "$_e" 2>/dev/null && [ "$EN_OWNER" = "$_me" ] || continue
+    _mine=$_e; _nm=$((_nm + 1))
+  done
+  [ "$_nm" -eq 0 ] && return 0
+  _np=$(wc_profiles | wc -l)
+  if [ "$_nm" -eq 1 ] && [ "$_np" -eq 0 ]; then prof=$_mine; return 0; fi
+  echo "work: several enclaves or profiles and no default; name one" \
+    "(work enter <name>) or set one (severance use <name>)" >&2
+  return 1
+}
+
+# The helper that runs AS the enclave lives in the SHARED install, because
+# the enclave cannot read this user's home. It must be root-owned: a copy
+# this user (or anything running as this user) could change would be code
+# that runs as the enclave on the next entry. SEVERANCE_SYS_PREFIX is the
+# test seam, as in setup.sh, and lifts only the ownership check.
+_work_helper() {
+  _sp=${SEVERANCE_SYS_PREFIX:-/opt/severance}
+  _h=$_sp/share/severance/libexec/work-session
+  [ -x "$_h" ] || {
+    echo "work: the shared install is missing ($_h); root places it" \
+      "with 'sh setup.sh install --system'" >&2; return 1; }
+  if [ -z "${SEVERANCE_SYS_PREFIX:-}" ]; then
+    _open=$(find -L "$_h" \( ! -user 0 -o -perm -g+w -o -perm -o+w \) \
+      -print 2>/dev/null | head -1)
+    [ -z "$_open" ] || {
+      echo "work: refusing $_open: not root-owned and closed" >&2
+      return 1; }
+  fi
+  printf '%s\n' "$_h"
+}
+
+# Enter the enclave AS ITS ACCOUNT. `sudo -i` is the human gate and gives the
+# account a real session; work-session then brings in the enclave's
+# environment.d, which a sudo shell does not get by itself. NOTHING personal
+# is forwarded: not the ssh agent, not the display (the enclave has its own,
+# narrowed, in its environment).
+_work_enclave() {
+  en_load "$prof" || return 1
+  _me=$(id -un)
+  [ "$EN_OWNER" = "$_me" ] || [ "$EN_ACCOUNT" = "$_me" ] || {
+    echo "work: enclave '$prof' belongs to $EN_OWNER" >&2; return 1; }
+  [ "$EN_UID" != - ] || {
+    echo "work: enclave '$prof' is not provisioned (no account" \
+      "$EN_ACCOUNT)" >&2; return 1; }
+  _h=$(_work_helper) || return 1
+  [ "$mode" = run ] || set --
+  if [ "$_me" = "$EN_ACCOUNT" ]; then exec "$_h" "$@"; fi
+  if [ ! -t 0 ] && ! sudo -n -u "$EN_ACCOUNT" true 2>/dev/null; then
+    echo "work: no terminal to authenticate on. Launching without one" \
+      "(polkit) is not built yet." >&2
+    return 1
+  fi
+  [ "$mode" = run ] || echo "work: $prof (as $EN_ACCOUNT); 'exit' to leave" >&2
+  exec sudo -iu "$EN_ACCOUNT" "$_h" "$@"
+}
+
 mode=enter
 prof=
 if [ "${WORK_REEXEC:-}" = 1 ]; then prof=${WORK_PROFILE:-}; fi
@@ -104,6 +177,18 @@ case "${1:-}" in
   '') ;;                                  # bare `work` = `work enter`
   *) usage ;;
 esac
+
+# --- the enclave-user model (docs/enclave-user.md) ----------------------------
+# During the transition both models exist. A target in the REGISTRY is an
+# enclave with its own account, entered as that account; anything else is a
+# group-model profile, entered as before.
+[ -r "$_wc_libdir/enclave_lib" ] && . "$_wc_libdir/enclave_lib"
+command -v en_load >/dev/null 2>&1 && {
+  _work_pick || exit 1
+  if [ -n "$prof" ] && [ -f "$SEV_ENCLAVES_DIR/$prof" ]; then
+    _work_enclave "$@"; exit $?
+  fi
+}
 
 _rc=0; wc_load "$prof" || _rc=$?
 if [ "$_rc" != 0 ]; then

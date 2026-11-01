@@ -69,6 +69,8 @@ can undo). `./setup.sh paths` prints every root the package owns, one
     severance check                     # audit; non-zero on drift
 
     work                                # enter the (sole/default) enclave
+                                        # (a registry enclave is entered AS
+                                        #  its account, via sudo -i)
     work enter <profile>                # ...naming it explicitly
     work run -- <cmd> ...               # run one command in it
     work run <profile> -- <cmd> ...     # ...in a named enclave

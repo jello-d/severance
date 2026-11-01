@@ -191,9 +191,14 @@ right and wrong ways to become the enclave and the machinery may grow:
   `sudo -i` login shell is started by sudo, not by the manager, and does
   NOT see it. Measured: DOCKER_HOST is set in the manager and in a unit it
   starts, and absent in a `sudo -iu` shell. So `work` BRINGS THE ENVIRONMENT
-  OVER when it enters: it reads the manager's environment
-  (`systemctl --user show-environment`) or the same file, and starts the
-  shell with it. One more reason `work` exists rather than bare sudo.
+  OVER when it enters. One more reason `work` exists rather than bare sudo.
+  BUILT: `work [enter] <enclave>` and `work run <enclave> ...` run
+  `sudo -iu <account> libexec/work-session` from the SHARED install
+  (root-owned, refused otherwise); work-session reads systemd's own
+  environment.d generator, undoes its one level of quoting and exports
+  each value as data, never eval'd. Nothing personal is forwarded. With
+  no terminal and no cached credentials it refuses by name; the polkit
+  launcher path is the next piece.
 
 ## Provisioning and teardown
 

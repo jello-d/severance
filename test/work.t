@@ -40,6 +40,7 @@ work() {
   env -u WORK_PROFILE -u WORK_REEXEC -u WC_CONFIG \
     SEVERANCE_LIB="$WCLIB" WC_PROFILES_DIR="$PG" \
     WC_DEFAULT_FILE="$T/default" PATH="$T/bin:$PATH" \
+    SEVERANCE_ENCLAVES_DIR="$T/enclaves" ${SSP+SEVERANCE_SYS_PREFIX=$SSP} \
     sh "$WORK" "$@"
 }
 sudo_reached() { [ -e "$T/sudo-argv" ]; }
@@ -165,5 +166,64 @@ done
 # replaced it, so losing it would strand every session with a bare environment.
 [ "$(grep -c '\.workrc' "$WORK")" -ge 2 ] ||
   fail "bin/work no longer sources .workrc in both paths"
+
+# --- ENCLAVES: entered AS the account, through sudo -i ------------------------
+# An enclave lives in the registry; getent knows its account (uid 990). The
+# helper comes from the SHARED install (SEVERANCE_SYS_PREFIX, the test seam).
+ME=$(id -un)
+mkdir -p "$T/enclaves" "$T/sys/share/severance/libexec"
+printf 'owner=%s\n' "$ME" > "$T/enclaves/acme"
+{ echo '#!/bin/sh'
+  printf '[ "$1 $2" = "passwd %s-acme" ] &&\n' "$ME"
+  printf '  { echo "%s-acme:x:990:990::/home/%s-acme:/bin/sh"; exit 0; }\n' \
+    "$ME" "$ME"
+  echo 'exec /usr/bin/getent "$@"'
+} > "$T/bin/getent"
+printf '#!/bin/sh\necho "SESSION $*"\n' \
+  > "$T/sys/share/severance/libexec/work-session"
+chmod +x "$T/bin/getent" "$T/sys/share/severance/libexec/work-session"
+SSP=$T/sys
+
+# No TTY and no cached sudo: refused by name; sudo is never asked to prompt.
+rc=0; work enter acme </dev/null >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "enclave entry with no TTY: rc=$rc, want 1"
+# Cached credentials (`sudo -n` succeeds): entry reaches sudo -i.
+{ echo '#!/bin/sh'
+  echo '[ "$1" = -n ] && exit 0'
+  printf 'printf "%%s\\n" "$*" >> %s/sudo-argv\n' "$T"
+  echo 'exit 97'
+} > "$T/bin/sudo"
+chmod +x "$T/bin/sudo"
+want="-iu $ME-acme $T/sys/share/severance/libexec/work-session"
+rc=0; work enter acme </dev/null >/dev/null 2>&1 || rc=$?
+[ "$rc" = 97 ] || fail "enclave entry did not reach sudo: rc=$rc"
+[ "$(cat "$T/sudo-argv")" = "$want" ] ||
+  fail "enclave entry argv: '$(cat "$T/sudo-argv")', want '$want'"
+case $(cat "$T/sudo-argv") in *SSH_AUTH_SOCK*|*WAYLAND*|*DISPLAY*)
+  fail "enclave entry forwarded a personal session resource" ;; esac
+rc=0; work run acme -- make test </dev/null >/dev/null 2>&1 || rc=$?
+[ "$(cat "$T/sudo-argv")" = "$want make test" ] ||
+  fail "enclave run argv: '$(cat "$T/sudo-argv")'"
+# Bare `work` with an enclave of mine AND a profile, no default: it asks.
+rc=0; out=$(work </dev/null 2>&1) || rc=$?
+[ "$rc" = 1 ] || fail "bare work with an enclave AND a profile: rc=$rc"
+case $out in *"name one"*) ;; *) fail "no reason given: $out" ;; esac
+sudo_reached && fail "bare work guessed and reached sudo"
+# ...and with only the enclave, bare `work` enters it.
+mkdir -p "$T/aside"; mv "$PG/alpha" "$PG/beta" "$T/aside/"
+rc=0; work </dev/null >/dev/null 2>&1 || rc=$?
+[ "$(cat "$T/sudo-argv" 2>/dev/null)" = "$want" ] ||
+  fail "bare work with one enclave did not enter it: rc=$rc"
+mv "$T/aside/alpha" "$T/aside/beta" "$PG/"
+# Declared but not provisioned (no account): refused by name.
+printf 'owner=%s\n' "$ME" > "$T/enclaves/gamma"
+rc=0; out=$(work enter gamma </dev/null 2>&1) || rc=$?
+case "$rc $out" in "1 "*"not provisioned"*) ;; *) fail "gamma: $rc $out" ;;
+esac
+# Without the seam the REAL shared install is required (absent here).
+unset SSP
+rc=0; out=$(work enter acme </dev/null 2>&1) || rc=$?
+case "$rc $out" in "1 "*"shared install is missing"*) ;;
+  *) fail "no shared install: $rc $out" ;; esac
 
 pass

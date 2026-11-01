@@ -1,0 +1,56 @@
+#!/bin/sh
+# work-session - runs AS AN ENCLAVE ACCOUNT, started by `work` through
+# `sudo -iu <account>` (docs/enclave-user.md). It brings in the enclave's
+# environment, then becomes an interactive shell or runs the given command.
+#
+# WHY IT EXISTS: environment.d (where severance writes the enclave's display,
+# audio and docker paths) is read by the account's USER MANAGER, for what the
+# manager starts. A `sudo -i` login shell is started by sudo, not by the
+# manager, and does not see it. Measured: DOCKER_HOST set in the manager and
+# in a unit it starts, absent in a `sudo -iu` shell.
+#
+# HOW: systemd's own environment.d generator, so the values and the merge
+# rules are exactly what the manager gets. It prints KEY=VALUE, shell-quoting
+# a value with spaces as KEY="a b" and escaping with backslashes; that one
+# level of quoting is undone here and each line is EXPORTED AS DATA. Nothing
+# is eval'd, so a value can never run as code.
+#
+# Shipped in the SHARED install (/opt/severance) only: it runs as the enclave
+# account, which cannot read the login user's home, and `work` refuses a copy
+# that is not root-owned.
+set -eu
+
+_gen=
+_rel=user-environment-generators/30-systemd-environment-d-generator
+for _g in /usr/lib/systemd/$_rel /lib/systemd/$_rel; do
+  if [ -x "$_g" ]; then _gen=$_g; break; fi
+done
+[ -n "$_gen" ] || {
+  echo "work-session: systemd's environment.d generator not found" >&2
+  exit 1; }
+_env=$("$_gen") || { echo "work-session: $_gen failed" >&2; exit 1; }
+
+# One line per assignment. Unquote KEY="..." (backslash escapes \" \\ \$ \`
+# inside it), leave KEY=bare alone, and drop anything that is not KEY=.
+_env=$(printf '%s\n' "$_env" | sed -n \
+  -e '/^[A-Za-z_][A-Za-z0-9_]*="/{
+        s/^\([A-Za-z_][A-Za-z0-9_]*\)="\(.*\)"$/\1=\2/
+        s/\\\(["\\$`]\)/\1/g
+        p
+        d
+      }' \
+  -e '/^[A-Za-z_][A-Za-z0-9_]*=/p')
+set -f
+_ifs=$IFS
+IFS='
+'
+for _l in $_env; do export "$_l"; done
+IFS=$_ifs
+set +f
+
+[ -n "${SEVERANCE_ENCLAVE:-}" ] ||
+  echo "work-session: WARN no SEVERANCE_ENCLAVE in environment.d" \
+    "(has the enclave been provisioned?)" >&2
+cd "$HOME"
+if [ "$#" -gt 0 ]; then exec "$@"; fi
+exec "${SHELL:-/bin/sh}" -i

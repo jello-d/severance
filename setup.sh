@@ -30,7 +30,7 @@
 # module sources was reached through ~/.local/libexec/severance. A guard that
 # cannot be executed does not refuse anything.
 #
-# WHY bin, lib, share AND man ALL LIVE INSIDE THE ONE PAYLOAD:
+# WHY bin, lib, libexec, share AND man ALL LIVE INSIDE THE ONE PAYLOAD:
 # bin/severance resolves its own real path and reads ../lib and ../share as
 # SIBLINGS, which is the one mechanism that makes a checkout, an installed
 # payload and a relocated copy all resolve the same way. Splitting them would
@@ -141,7 +141,7 @@ _payload_stage() {
   esac
   rm -rf -- "$_ps_new" "$_ps_old"
   mkdir -p "$_ps_new" || { bad "could not create $_ps_new"; return 1; }
-  for _d in bin lib share man; do
+  for _d in bin lib libexec share man; do
     if [ -d "$_root/$_d" ]; then
       cp -R "$_root/$_d" "$_ps_new/" || { bad "could not copy $_d"; return 1; }
     fi
@@ -152,7 +152,7 @@ _payload_stage() {
   # that cannot find its profiles, at a path that looks installed. Checked
   # before the swap, so a failed copy leaves the live payload untouched.
   for _r in bin/severance bin/work lib/work-context_lib share/tools \
-            share/units/severance-dockerd@.service; do
+            share/units/severance-dockerd@.service libexec/work-session; do
     if [ ! -e "$_ps_new/$_r" ]; then
       bad "staged payload is missing $_r"
       rm -rf -- "$_ps_new"
