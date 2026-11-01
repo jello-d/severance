@@ -174,7 +174,9 @@ whether this severance supports a verb should RUN it: `severance current`
 either answers or does not, which is what `doctor` does, and what a version
 number could only claim.
 
-- `severance current [PID]`: the profile name on stdout, or nothing.
+- `severance current [PID]`: the enclave's name on stdout, or nothing. A
+  process whose real uid is a registry enclave's account answers first (the
+  enclave-user model); otherwise the group model is asked.
   Exit **0** answered (empty output means "not in an enclave", which is not an
   error); **2** could not answer (the pid is malformed or names no live
   process).

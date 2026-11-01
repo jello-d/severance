@@ -15,12 +15,16 @@ SEV=$HERE/bin/severance
 ED=$T/enclaves
 mkdir -p "$ED" "$T/bin"
 
-# passwd knows exactly one account, alice-acme, uid 990.
+# passwd knows two accounts, by name or uid: alice-acme (990), and
+# alice-broke (991), whose registry record will be unreadable.
 cat > "$T/bin/getent" <<'EOF'
 #!/bin/sh
-[ "$1" = passwd ] && [ "$2" = alice-acme ] && {
-  echo 'alice-acme:x:990:990::/home/alice-acme:/bin/sh'; exit 0; }
-exit 2
+[ "$1" = passwd ] || exit 2
+case $2 in
+  alice-acme|990) echo 'alice-acme:x:990:990::/home/alice-acme:/bin/sh' ;;
+  alice-broke|991) echo 'alice-broke:x:991:991::/home/alice-broke:/bin/sh' ;;
+  *) exit 2 ;;
+esac
 EOF
 chmod +x "$T/bin/getent"
 
@@ -83,8 +87,41 @@ bad -x 'owner=alice\n' 'is not a DNS label' "a leading-hyphen name"
 bad aaaaaaaaaaaaaaaaaaaaaaaaaaa 'owner=alice\n' 'over 32 characters' \
   "an account name useradd would refuse"
 
+# --- current, by uid ----------------------------------------------------------
+# A fake /proc (SEV_PROC) plants a process with any uid, without one existing.
+# The group model is pointed at an EMPTY profiles dir, so a fall-through can
+# only answer "personal".
+# The broken-record case uses THIS shell's real pid, so if the uid check
+# wrongly says "not mine", the group model can genuinely answer "personal"
+# (exit 0) instead of failing to find the pid, which would pass by accident.
+mkdir -p "$T/proc/4242" "$T/proc/$$" "$T/nopro"
+printf 'Name:\tx\nUid:\t990\t990\t990\t990\n' > "$T/proc/4242/status"
+printf 'Name:\tx\nUid:\t991\t991\t991\t991\n' > "$T/proc/$$/status"
+cur() {
+  env SEV_PROC="${CP:-$T/proc}" WC_PROFILES_DIR="$T/nopro" \
+    WC_DEFAULT_FILE="$T/nodefault" SEVERANCE_ENCLAVES_DIR="$ED" \
+    PATH="$T/bin:$PATH" sh "$SEV" current "$@"
+}
+out=$(cur 4242) || fail "current for an enclave account exited non-zero"
+[ "$out" = acme ] || fail "current for uid 990: '$out', want acme"
+
+# A personal process (this test's own shell, real /proc): nothing, exit 0.
+rc=0; out=$(CP=/proc cur "$$") || rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] ||
+  fail "current for a personal process: rc=$rc out='$out'"
+
+# An account that would belong to an UNREADABLE record cannot be called
+# personal: exit 2, never an empty "not in an enclave".
+printf 'owner=alice\ncolour=red\n' > "$ED/broke"
+rc=0; out=$(cur "$$" 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "current behind a broken record: rc=$rc out='$out'"
+rm -f "$ED/broke"
+
+rc=0; cur 999999 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "current for a missing pid exited $rc, want 2"
+
 # --- usage ------------------------------------------------------------------
 rc=0; sev enclaves extra >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "an extra argument exited $rc, want 2"
 
-pass "registry list, five-field lines, bad records named"
+pass "registry list, bad records named, current by uid"

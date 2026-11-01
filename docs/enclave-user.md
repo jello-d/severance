@@ -165,7 +165,9 @@ DETECTION is `severance current [PID]`: read the pid's real uid from
 `/proc`, map it through the registry to an enclave name, print the name or
 nothing. `/proc/<pid>/status` is readable by anyone, so either identity gets
 the same answer. Output and exit codes UNCHANGED (one word or nothing; exit 2
-when it cannot answer).
+when it cannot answer, including when the process's account would belong to
+a record that does not parse, so a broken record cannot make a work process
+read as personal). BUILT: `en_current`, asked before the group model.
 
 `guard` keeps its contract (exit 0 ok, 1 refuse). A personal process cannot
 enter an enclave home at all now, so the guard becomes a backstop rather than

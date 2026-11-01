@@ -121,3 +121,41 @@ sev_enclaves() {
   done
   return "$_en_rc"
 }
+
+# --- "which enclave is this process in?", by uid ------------------------------
+# A process IS in an enclave when its REAL uid is that enclave's account: the
+# uid is the wall in this model, so it is also the ground truth, never an env
+# var a session carries along. SEV_PROC is a test seam for /proc.
+#
+# Sets EN_CURRENT and returns:
+#   0  in an enclave (EN_CURRENT set, EN_* loaded for it)
+#   1  not in one by uid (the caller may still ask the group model)
+#   2  UNANSWERABLE: no such process, or the process's account could belong
+#      to a record that does not parse, so "no" would be a guess
+# 2 matters for the same reason it does in wc_current: a process behind the
+# wall reported as personal is the one direction this must never fail in.
+SEV_PROC=${SEV_PROC:-/proc}
+
+en_current() {   # [pid]
+  EN_CURRENT=
+  if [ -n "${1:-}" ]; then
+    [ -r "$SEV_PROC/$1/status" ] || return 2
+    _en_uid=$(awk '/^Uid:/ { print $2; exit }' "$SEV_PROC/$1/status")
+  else
+    _en_uid=$(id -u)
+  fi
+  _en_who=$(getent passwd "$_en_uid" 2>/dev/null | cut -d: -f1)
+  [ -n "$_en_who" ] || { en_reset; return 1; }
+  _en_unsure=0
+  for _en_n in $(en_names); do
+    if en_load "$_en_n" 2>/dev/null; then
+      [ "$EN_ACCOUNT" = "$_en_who" ] && { EN_CURRENT=$_en_n; return 0; }
+    else
+      # Its owner is unknown, but the account would end in -<name>.
+      case $_en_who in *-"$_en_n") _en_unsure=1 ;; esac
+    fi
+  done
+  en_reset
+  [ "$_en_unsure" = 0 ] || return 2
+  return 1
+}

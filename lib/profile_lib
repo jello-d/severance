@@ -80,6 +80,16 @@ sev_current() {   # [pid]
     '') ;;
     *[!0-9]*) echo "severance: current: not a pid: $1" >&2; return 2 ;;
   esac
+  # The enclave-user model answers first, by uid; a process that is no
+  # enclave's account is then asked about the group model, during the
+  # transition when both exist (docs/enclave-user.md, "expand").
+  _rc=0; en_current "${1:-}" || _rc=$?
+  case $_rc in
+    0) printf '%s\n' "$EN_CURRENT"; return 0 ;;
+    2) echo "severance: current: cannot answer for ${1:-this process}" \
+         "(no such process, or an unreadable enclave record)" >&2
+       return 2 ;;
+  esac
   _rc=0; wc_current "${1:-}" || _rc=$?
   case $_rc in
     0) printf '%s\n' "$WC_CURRENT" ;;
