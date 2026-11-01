@@ -161,6 +161,16 @@ integrator one stable criterion: anything with an enclave's name came
 through the relay and is that enclave's work, whatever the app. Published
 like `current`.
 
+BUILT: libexec/severance-notify (python3-gi), run as two user units:
+`severance-notify-enclave@<enclave>` in the enclave's lingering manager
+(its ExecCondition admits only the account whose SEVERANCE_ENCLAVE matches)
+and `severance-notify-owner@<enclave>` in the owner's graphical session.
+The marker as built: app name = the enclave, the app's own name moved into
+the summary ("Slack: ..."), and a hint `x-severance-enclave` = the enclave.
+What crosses is capped (summary 512, body 4096, eight actions) and the only
+hint that passes is urgency. Proven over two private buses in
+test/notify.t, a click included.
+
 No URL relay: an enclave runs its own browser, so a link opened inside it
 opens there, which is where work links belong. (An earlier draft had one,
 for sign-in flows when the enclave had no browser.)

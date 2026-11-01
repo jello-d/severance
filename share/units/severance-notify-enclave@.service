@@ -1,0 +1,21 @@
+# Managed by severance (docs/enclave-user.md). A USER unit: the ENCLAVE's end
+# of its notification relay (libexec/severance-notify enclave), in the
+# enclave account's lingering user manager. It owns
+# org.freedesktop.Notifications on the enclave's bus, so its apps reach the
+# owner's daemon through the relay. The instance name is the enclave.
+# Rendered by `severance enclave provision` into /etc/systemd/user,
+# root-owned, enabled globally; the ExecCondition lets only the account
+# whose SEVERANCE_ENCLAVE (its environment.d) names this instance run it.
+# It retries a missing owner end on its own, so it does not stop on that.
+[Unit]
+Description=severance: notifications from enclave %i, enclave's end
+
+[Service]
+ExecCondition=/bin/sh -c 'test "$SEVERANCE_ENCLAVE" = "%i"'
+ExecStart=@LIBEXEC@/severance-notify enclave %i
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=default.target

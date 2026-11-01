@@ -154,7 +154,9 @@ _payload_stage() {
   for _r in bin/severance bin/work lib/work-context_lib share/tools \
             share/units/severance-dockerd@.service libexec/work-session \
             share/units/severance-display@.service \
-            libexec/severance-display; do
+            libexec/severance-display libexec/severance-notify \
+            share/units/severance-notify-owner@.service \
+            share/units/severance-notify-enclave@.service; do
     if [ ! -e "$_ps_new/$_r" ]; then
       bad "staged payload is missing $_r"
       rm -rf -- "$_ps_new"

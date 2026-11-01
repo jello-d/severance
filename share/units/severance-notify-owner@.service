@@ -1,0 +1,21 @@
+# Managed by severance (docs/enclave-user.md). A USER unit: the OWNER's end
+# of an enclave's notification relay (libexec/severance-notify owner), in the
+# owner's graphical session, posting the enclave's notifications to the
+# owner's daemon. The instance name is the enclave. Rendered by `severance
+# enclave provision` into /etc/systemd/user, root-owned, enabled globally;
+# the ExecCondition lets only the owner run it (only the owner can write the
+# enclave's share dir). Exit 2 (usage) is not retried.
+[Unit]
+Description=severance: notifications from enclave %i, owner's end
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecCondition=/bin/sh -c 'test -w @SHARE_ROOT@/%i'
+ExecStart=@LIBEXEC@/severance-notify owner %i
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=graphical-session.target

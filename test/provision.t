@@ -199,6 +199,12 @@ want "$T/userunits/severance-display@.service" \
   "the display unit template is not installed"
 want "dry-run: systemctl --global enable severance-display@newe.service" \
   "the enclave's display unit is not enabled"
+# The relay: the owner's end and the enclave's end, both enabled.
+for u in severance-notify-owner severance-notify-enclave; do
+  want "$T/userunits/$u@.service" "the $u template is not installed"
+  want "dry-run: systemctl --global enable $u@newe.service" \
+    "the $u unit is not enabled"
+done
 # No rootless extras: refused by name rather than a unit that cannot start.
 DRL=$T/none
 rc=0; prov newe >/dev/null 2>"$T/err" || rc=$?
@@ -236,11 +242,15 @@ want "dry-run: systemctl disable --now severance-dockerd@alice-off.service" \
 rm -f "$ED/newe" "$ED/reg" "$ED/grp" "$ED/orphan"
 
 # --- the renders: who may reach the share dir, and what the session sees ------
+# _pv_test_render renders the template named in UNIT_ARG (render() can
+# only name a function, so the argument travels in the environment).
 render() {   # <enclave> <function>
   env SEV_LIB="$HERE/lib" SEVERANCE_SELF="$SEV" SEVERANCE_ENCLAVES_DIR="$ED" \
     SEVERANCE_SHARE="$HERE/share" \
     PATH="$T/bin:$PATH" sh -c '. "$SEV_LIB/common_lib"
-    . "$SEV_LIB/provision_lib"; en_load "$1" && "$2"' _ "$1" "$2"
+    . "$SEV_LIB/provision_lib"
+    _pv_test_render() { _pv_render_unit "$UNIT_ARG"; }
+    en_load "$1" && "$2"' _ "$1" "$2"
 }
 [ "$(render acme _pv_render_share)" = \
   "d /run/severance/acme 0710 alice alice-acme -" ] ||
@@ -255,6 +265,16 @@ printf '%s\n' "$du" | grep -qF "test -w /run/severance/%i" ||
   fail "the display unit is not limited to the enclave's owner"
 printf '%s\n' "$du" | grep -q '@[A-Z_]*@' &&
   fail "an unrendered placeholder survived in the display unit"
+for u in severance-notify-owner severance-notify-enclave; do
+  ur=$(UNIT_ARG=$u@.service; export UNIT_ARG; render acme _pv_test_render)
+  printf '%s\n' "$ur" | grep -q \
+    "^ExecStart=$HERE/libexec/severance-notify " ||
+    fail "$u does not run THIS install's relay: $ur"
+done
+er=$(UNIT_ARG=severance-notify-enclave@.service; export UNIT_ARG
+  render acme _pv_test_render)
+printf '%s\n' "$er" | grep -qF 'test "$SEVERANCE_ENCLAVE" = "%i"' ||
+  fail "the enclave's relay end is not limited to that enclave's account"
 env_out=$(render acme _pv_render_env)
 for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
          PULSE_SERVER=unix:/run/severance/acme/pulse \
@@ -298,8 +318,11 @@ want "dry-run: mv $HR/alice-acme $HR/alice-acme.retired-" \
 want "dry-run: chown -R root:root $HR/alice-acme.retired-" \
   "the retired home is not taken away from the freed uid"
 want "dry-run: userdel alice-acme" "the account is not removed"
-want "dry-run: systemctl --global disable severance-display@acme.service" \
-  "forget leaves the enclave's display unit enabled"
+for u in severance-display severance-notify-owner severance-notify-enclave
+do
+  want "dry-run: systemctl --global disable $u@acme.service" \
+    "forget leaves $u enabled"
+done
 _dd=$(printf '%s\n' "$out" |
   grep -n 'disable --now severance-dockerd@alice-acme' | cut -d: -f1)
 _ud=$(printf '%s\n' "$out" | grep -n 'dry-run: userdel' | cut -d: -f1)
@@ -360,7 +383,8 @@ ls "$HR" | grep -q '^alice-acme\.retired-' ||
 # and check names a stray one.
 rm -f "$ED/beta" "$ED/gamma"
 cp "$HERE/share/units/severance-dockerd@.service" "$T/units/"
-: > "$T/userunits/severance-display@.service"
+for u in severance-display severance-notify-owner severance-notify-enclave
+do : > "$T/userunits/$u@.service"; done
 printf 'owner=alice\n' > "$ED/delta"         # docker defaults to yes
 DRY=1; out=$(fgt acme --purge 2>&1) || fail "purge (dry) failed: $out"
 printf '%s\n' "$out" | grep -q "rm -f $T/units/severance-dockerd@" &&
@@ -369,8 +393,11 @@ rm -f "$ED/delta"
 out=$(fgt acme --purge 2>&1) || fail "purge (dry) failed: $out"
 want "dry-run: rm -f $T/units/severance-dockerd@.service" \
   "purging the last docker enclave left the template"
-want "dry-run: rm -f $T/userunits/severance-display@.service" \
-  "purging the last enclave left the display template"
+for u in severance-display severance-notify-owner severance-notify-enclave
+do
+  want "dry-run: rm -f $T/userunits/$u@.service" \
+    "purging the last enclave left the $u template"
+done
 unset DRY
 # Only a docker=no enclave left (the dry purge removed nothing for real).
 rm -f "$ED/acme"

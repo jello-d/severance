@@ -1,0 +1,367 @@
+#!/usr/bin/python3 -I
+"""severance-notify enclave|owner <enclave>: the notification relay.
+
+An enclave's apps post notifications to the ENCLAVE's own session bus; the
+owner's bus admits only the owner's uid, so they cannot reach the owner's
+notification daemon. This bridges exactly that, and nothing else
+(docs/enclave-user.md):
+
+  enclave <name>  as the enclave account, in its user manager. Owns
+                  org.freedesktop.Notifications on the enclave's bus and
+                  forwards each notification, one JSON line, through
+                  <share>/<name>/relay. Turns the owner's replies back into
+                  ActionInvoked and NotificationClosed for the app.
+  owner <name>    as the owner, in the owner's graphical session. Listens
+                  on that socket and posts to the owner's daemon (mako).
+
+THE MARKER CONTRACT: every relayed notification carries the ENCLAVE NAME as
+its app name, the originating app's name moved into the summary ("Slack:
+..."), and the hint x-severance-enclave = the enclave name. So a daemon
+matching app names exactly (mako does) can tell enclave work from personal
+traffic with one criterion, whatever the app.
+
+The owner side treats what arrives as UNTRUSTED DATA: every field is capped,
+only urgency passes among the hints, and an enclave can create, replace and
+close only its own notifications. GLib's D-Bus bindings (python3-gi).
+"""
+
+import json
+import os
+import re
+import signal
+import socket
+import sys
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+BUS_NAME = "org.freedesktop.Notifications"
+PATH = "/org/freedesktop/Notifications"
+IFACE = "org.freedesktop.Notifications"
+LIMITS = {"app": 128, "summary": 512, "body": 4096, "action": 128}
+MAX_ACTIONS = 8
+INTROSPECTION = """
+<node>
+  <interface name="org.freedesktop.Notifications">
+    <method name="GetCapabilities">
+      <arg type="as" direction="out"/>
+    </method>
+    <method name="Notify">
+      <arg type="s" direction="in"/><arg type="u" direction="in"/>
+      <arg type="s" direction="in"/><arg type="s" direction="in"/>
+      <arg type="s" direction="in"/><arg type="as" direction="in"/>
+      <arg type="a{sv}" direction="in"/><arg type="i" direction="in"/>
+      <arg type="u" direction="out"/>
+    </method>
+    <method name="CloseNotification">
+      <arg type="u" direction="in"/>
+    </method>
+    <method name="GetServerInformation">
+      <arg type="s" direction="out"/><arg type="s" direction="out"/>
+      <arg type="s" direction="out"/><arg type="s" direction="out"/>
+    </method>
+    <signal name="NotificationClosed">
+      <arg type="u"/><arg type="u"/>
+    </signal>
+    <signal name="ActionInvoked">
+      <arg type="u"/><arg type="s"/>
+    </signal>
+  </interface>
+</node>
+"""
+
+
+def say(msg):
+    sys.stderr.write("severance-notify: %s\n" % msg)
+    sys.stderr.flush()
+
+
+def die(msg, code=1):
+    say(msg)
+    sys.exit(code)
+
+
+def cap(value, limit):
+    return str(value)[:limit] if value is not None else ""
+
+
+class Line:
+    """Newline-delimited JSON over one unix socket connection."""
+
+    def __init__(self, sock, on_message, on_close):
+        self.sock = sock
+        self.buf = b""
+        self.on_message = on_message
+        self.on_close = on_close
+        sock.setblocking(False)
+        self.watch = GLib.io_add_watch(
+            sock.fileno(), GLib.PRIORITY_DEFAULT,
+            GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self._readable)
+
+    def send(self, obj):
+        try:
+            self.sock.sendall((json.dumps(obj) + "\n").encode())
+        except OSError:
+            pass
+
+    def _readable(self, fd, cond):
+        try:
+            chunk = self.sock.recv(65536)
+        except BlockingIOError:
+            return True
+        except OSError:
+            chunk = b""
+        if not chunk:
+            self.sock.close()
+            self.on_close(self)
+            return False
+        self.buf += chunk
+        if len(self.buf) > 1 << 20:      # a line over 1 MiB is not a message
+            self.sock.close()
+            self.on_close(self)
+            return False
+        while b"\n" in self.buf:
+            raw, self.buf = self.buf.split(b"\n", 1)
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(msg, dict):
+                self.on_message(self, msg)
+        return True
+
+
+# --- owner side ---------------------------------------------------------------
+class Owner:
+    def __init__(self, enclave, path):
+        self.enclave = enclave
+        self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self.by_owner = {}       # owner id -> (link, enclave id)
+        self.bus.signal_subscribe(
+            None, IFACE, None, PATH, None, Gio.DBusSignalFlags.NONE,
+            self._signal)
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.server.bind(path)
+        os.chmod(path, 0o666)    # the share dir (0710) is the gate
+        self.server.listen(4)
+        self.server.setblocking(False)
+        GLib.io_add_watch(self.server.fileno(), GLib.PRIORITY_DEFAULT,
+                          GLib.IO_IN, self._accept)
+
+    def _accept(self, fd, cond):
+        try:
+            conn, _ = self.server.accept()
+        except BlockingIOError:
+            return True
+        Line(conn, self._message, self._closed)
+        return True
+
+    def _closed(self, link):
+        for oid in [o for o, (lk, _) in self.by_owner.items() if lk is link]:
+            del self.by_owner[oid]
+
+    def _owner_id(self, link, eid):
+        for oid, (lk, e) in self.by_owner.items():
+            if lk is link and e == eid:
+                return oid
+        return 0
+
+    def _message(self, link, msg):
+        op = msg.get("op")
+        try:
+            eid = int(msg.get("id", 0))
+        except (TypeError, ValueError):
+            return
+        if op == "notify":
+            self._notify(link, eid, msg)
+        elif op == "close":
+            oid = self._owner_id(link, eid)
+            if oid:
+                self._call("CloseNotification", GLib.Variant("(u)", (oid,)))
+
+    def _notify(self, link, eid, msg):
+        app = cap(msg.get("app"), LIMITS["app"])
+        summary = cap(msg.get("summary"), LIMITS["summary"])
+        if app:
+            summary = "%s: %s" % (app, summary)
+        actions = msg.get("actions") or []
+        if not isinstance(actions, list):
+            actions = []
+        actions = [cap(a, LIMITS["action"]) for a in actions]
+        actions = actions[:2 * MAX_ACTIONS]
+        if len(actions) % 2:
+            actions = actions[:-1]
+        try:
+            urgency = min(max(int(msg.get("urgency", 1)), 0), 2)
+            expire = min(max(int(msg.get("expire", -1)), -1), 3600000)
+        except (TypeError, ValueError):
+            urgency, expire = 1, -1
+        hints = {"urgency": GLib.Variant("y", urgency),
+                 "x-severance-enclave": GLib.Variant("s", self.enclave)}
+        args = GLib.Variant("(susssasa{sv}i)", (
+            self.enclave, self._owner_id(link, eid), "",
+            summary, cap(msg.get("body"), LIMITS["body"]),
+            actions, hints, expire))
+        res = self._call("Notify", args)
+        if res is not None:
+            self.by_owner[res.unpack()[0]] = (link, eid)
+
+    def _call(self, method, args):
+        try:
+            return self.bus.call_sync(BUS_NAME, PATH, IFACE, method, args,
+                                      None, Gio.DBusCallFlags.NONE, 5000,
+                                      None)
+        except GLib.Error as e:
+            say("%s failed on the owner's bus: %s" % (method, e.message))
+            return None
+
+    def _signal(self, conn, sender, path, iface, name, params):
+        vals = params.unpack()
+        entry = self.by_owner.get(vals[0])
+        if entry is None:
+            return
+        link, eid = entry
+        if name == "ActionInvoked":
+            link.send({"op": "action", "id": eid, "key": vals[1]})
+        elif name == "NotificationClosed":
+            link.send({"op": "closed", "id": eid, "reason": vals[1]})
+            del self.by_owner[vals[0]]
+
+
+# --- enclave side -------------------------------------------------------------
+class Enclave:
+    def __init__(self, enclave, path):
+        self.enclave = enclave
+        self.path = path
+        self.link = None
+        self.next_id = 1
+        self.conn = None
+        node = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION)
+        self.iface_info = node.interfaces[0]
+        Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME,
+                         Gio.BusNameOwnerFlags.NONE, self._acquired,
+                         None, self._lost)
+        self._connect()
+
+    def _connect(self):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.connect(self.path)
+        except OSError:
+            s.close()
+            GLib.timeout_add_seconds(5, self._retry)
+            return
+        self.link = Line(s, self._reply, self._down)
+        say("linked to the owner's relay (%s)" % self.path)
+
+    def _retry(self):
+        self._connect()
+        return False
+
+    def _down(self, link):
+        self.link = None
+        say("the owner's relay went away; retrying")
+        GLib.timeout_add_seconds(5, self._retry)
+
+    def _acquired(self, conn, name):
+        self.conn = conn
+        conn.register_object(PATH, self.iface_info, self._method, None, None)
+
+    def _lost(self, conn, name):
+        die("could not own %s on the enclave's bus (another notification "
+            "daemon has it)" % BUS_NAME)
+
+    def _method(self, conn, sender, path, iface, method, params, inv):
+        if method == "GetCapabilities":
+            inv.return_value(GLib.Variant("(as)", (["actions", "body"],)))
+        elif method == "GetServerInformation":
+            inv.return_value(GLib.Variant(
+                "(ssss)", ("severance-notify", "severance", "1", "1.2")))
+        elif method == "Notify":
+            (app, replaces, _icon, summary, body, actions, hints,
+             expire) = params.unpack()
+            nid = replaces or self.next_id
+            if not replaces:
+                self.next_id += 1
+            urgency = hints.get("urgency", 1)
+            self._send({"op": "notify", "id": nid, "app": app,
+                        "summary": summary, "body": body,
+                        "actions": list(actions), "urgency": urgency,
+                        "expire": expire})
+            inv.return_value(GLib.Variant("(u)", (nid,)))
+        elif method == "CloseNotification":
+            self._send({"op": "close", "id": params.unpack()[0]})
+            inv.return_value(None)
+
+    def _send(self, obj):
+        if self.link is None:
+            say("dropped a notification: the owner's relay is not up")
+            return
+        self.link.send(obj)
+
+    def _reply(self, link, msg):
+        if self.conn is None:
+            return
+        try:
+            nid = int(msg.get("id", 0))
+        except (TypeError, ValueError):
+            return
+        if msg.get("op") == "action":
+            sig, args = "ActionInvoked", GLib.Variant(
+                "(us)", (nid, cap(msg.get("key"), LIMITS["action"])))
+        elif msg.get("op") == "closed":
+            sig, args = "NotificationClosed", GLib.Variant(
+                "(uu)", (nid, int(msg.get("reason", 3))))
+        else:
+            return
+        self.conn.emit_signal(None, PATH, IFACE, sig, args)
+
+
+def main(argv):
+    if len(argv) != 3 or argv[1] not in ("enclave", "owner"):
+        die("usage: severance-notify enclave|owner <enclave>", 2)
+    mode, enclave = argv[1], argv[2]
+    if not re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", enclave):
+        die("'%s' is not an enclave name (a DNS label)" % enclave, 2)
+    share = os.path.join(os.environ.get("SEVERANCE_SHARE_ROOT",
+                                        "/run/severance"), enclave)
+    path = os.path.join(share, "relay")
+    loop = GLib.MainLoop()
+    if mode == "owner":
+        if not os.access(share, os.W_OK):
+            die("%s is missing or not writable (is this the owner?)" % share)
+        try:
+            st = os.lstat(path)
+            if (st.st_mode & 0o170000) != 0o140000:
+                die("%s exists and is not a socket; not touching it" % path)
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+        # GLib's own signal source: a Python handler would only run when the
+        # interpreter next gets control, which a blocked main loop may never
+        # give it, so a systemd stop could be ignored.
+        def stop():
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            loop.quit()
+            return False
+        Owner(enclave, path)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig, stop)
+        print("ready: owner relay on %s" % path, flush=True)
+    else:
+        Enclave(enclave, path)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig,
+                                 lambda: loop.quit() or False)
+        print("ready: enclave relay for %s" % enclave, flush=True)
+    loop.run()
+
+
+if __name__ == "__main__":
+    main(sys.argv)
