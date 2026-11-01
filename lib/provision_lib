@@ -122,6 +122,12 @@ LINGER_DIR=${LINGER_DIR:-/var/lib/systemd/linger}
 SYSTEMD_UNIT_DIR=${SYSTEMD_UNIT_DIR:-/etc/systemd/system}
 DOCKERD_ROOTLESS=${DOCKERD_ROOTLESS:-/usr/bin/dockerd-rootless.sh}
 _PV_UNIT=severance-dockerd@.service
+# Device groups every enclave account joins: the GPU render node and the
+# cameras. Decided 2026-11-01: by group, always. Cameras carry the uaccess
+# tag, which ACLs them only to the owner of the seat's active session, and
+# an enclave never owns a seat session, so a group is the working grant.
+# PipeWire camera access through the owner's session is the successor.
+SEV_DEVICE_GROUPS=${SEV_DEVICE_GROUPS-video render}
 
 _pv_do() {
   if [ -n "${SEVERANCE_DRYRUN:-}" ]; then echo "dry-run: $*"; return 0; fi
@@ -153,6 +159,7 @@ _pv_provision_one() {
     echo "severance: owner '$EN_OWNER' is not an account here" >&2
     return 1; }
   _pv_account || return 1
+  _pv_groups || return 1
   _pv_subids uid "$SUBUID" --add-subuids || return 1
   _pv_subids gid "$SUBGID" --add-subgids || return 1
   # environment.d BEFORE linger: linger starts the user manager at once,
@@ -190,6 +197,21 @@ _pv_account() {
   [ "$(echo "$_pv_ent" | cut -d: -f6)" = "$EN_HOME" ] || {
     echo "severance: $EN_ACCOUNT's home is not $EN_HOME" >&2; return 1; }
   _pv_do chmod 0700 "$EN_HOME"
+}
+
+# Supplementary device groups, idempotent. A group this box does not have is
+# named, not silently skipped and not fatal: no such group is usually no
+# such device.
+_pv_groups() {
+  for _pv_dg in $SEV_DEVICE_GROUPS; do
+    _pv_gl=$(getent group "$_pv_dg") || {
+      echo "severance: WARN no '$_pv_dg' group on this box" >&2; continue; }
+    case ",$(echo "$_pv_gl" | cut -d: -f4)," in
+      *",$EN_ACCOUNT,"*) continue ;;
+    esac
+    _pv_do usermod -aG "$_pv_dg" "$EN_ACCOUNT" || return 1
+    echo "severance: $EN_ACCOUNT joined $_pv_dg"
+  done
 }
 
 # Subordinate ids for rootless containers: the next free 65536 block past
@@ -318,6 +340,14 @@ _pv_check_account() {
   if [ "$(getent group "$_pv_gid" | cut -d: -f1)" = "$EN_ACCOUNT" ]; then
     _ok "$EN_ACCOUNT: its own primary group"
   else _bad "$EN_ACCOUNT: primary group is not its own"; fi
+  for _pv_dg in $SEV_DEVICE_GROUPS; do
+    case ",$(getent group "$_pv_dg" | cut -d: -f4)," in
+      *",$EN_ACCOUNT,"*) _ok "$EN_ACCOUNT: in $_pv_dg" ;;
+      *) if getent group "$_pv_dg" >/dev/null; then
+           _bad "$EN_ACCOUNT: not in $_pv_dg"
+         else _warn "no '$_pv_dg' group on this box"; fi ;;
+    esac
+  done
   _pv_hs=$(stat -c '%U %a' "$EN_HOME" 2>/dev/null || echo missing)
   if [ "$_pv_hs" = "$EN_ACCOUNT 700" ]; then _ok "$EN_HOME: 0700, its own"
   else _bad "$EN_HOME: $_pv_hs, want '$EN_ACCOUNT 700'"; fi

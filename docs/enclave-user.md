@@ -199,7 +199,8 @@ right and wrong ways to become the enclave and the machinery may grow:
 
 Privileged, idempotent, per enclave:
 
-1. the account: `useradd --system`, user-private group, shell, home 0700;
+1. the account: `useradd --system`, user-private group, shell, home 0700,
+   and the device groups `video` and `render` (cameras and the GPU);
 2. subordinate uid and gid ranges, the next free 65536 block;
 3. linger;
 4. the registry record, the share dir's tmpfiles line, the docker unit

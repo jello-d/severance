@@ -114,6 +114,8 @@ case "$1 $2" in
   "group 990") echo 'alice-acme:x:990:' ;;
   "group 1500") echo 'alice-reg:x:1500:' ;;
   "group 100") echo 'users:x:100:' ;;
+  "group video") echo 'video:x:44:carol,alice-acme' ;;
+  "group render") echo 'render:x:992:alice-acme' ;;
   *) exit 2 ;;
 esac
 EOF2
@@ -125,6 +127,7 @@ chmod +x "$T/dockerd-rootless.sh"
 printf 'UID_MIN 1000\n' > "$T/login.defs"
 prov() {
   env SEVERANCE_ENCLAVES_DIR="$ED" SEVERANCE_DRYRUN=1 TMPDIR="$T/tmp" \
+    ${SEV_DEVICE_GROUPS+SEV_DEVICE_GROUPS="$SEV_DEVICE_GROUPS"} \
     SUBUID="$T/subuid" SUBGID="$T/subgid" LINGER_DIR="$T/linger" \
     TMPFILES_DIR="$T/tmpfiles" LOGIN_DEFS="$T/login.defs" \
     SYSTEMD_UNIT_DIR="$T/units" \
@@ -146,6 +149,15 @@ want "dry-run: usermod --add-subuids 231072-296607 alice-newe" \
 want "dry-run: usermod --add-subgids 231072-296607 alice-newe" \
   "the subgid block is not the next free one"
 want "dry-run: loginctl enable-linger alice-newe" "linger is not enabled"
+# Device groups: cameras and the GPU render node, by group (decided).
+want "dry-run: usermod -aG video alice-newe" "not added to video (cameras)"
+want "dry-run: usermod -aG render alice-newe" "not added to render (GPU)"
+# A group this box lacks is NAMED, and provisioning carries on.
+SEV_DEVICE_GROUPS="video nosuch"
+rc=0; out=$(prov newe 2>&1) || rc=$?
+unset SEV_DEVICE_GROUPS
+[ "$rc" = 0 ] || fail "a missing device group failed provisioning: $out"
+want "no 'nosuch' group on this box" "a missing device group was not named"
 want "$T/tmpfiles/severance-newe.conf" "the share dir is not declared"
 want "dry-run: runuser -u alice-newe" \
   "environment.d is not written AS THE ACCOUNT"
