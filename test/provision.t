@@ -298,6 +298,29 @@ for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
 done
 render off _pv_render_env | grep -q DOCKER_HOST &&
   fail "a docker=no enclave's environment names a DOCKER_HOST"
+
+# No other environment.d file may set severance's names: an integrator's
+# file of desktop hints is welcome, one that redefines a socket is not.
+# runuser is stubbed to run the reader as us, the home is a scratch dir.
+EH=$T/homes/alice-acme/.config/environment.d
+mkdir -p "$EH"
+printf '#!/bin/sh\nshift 3\nexec "$@"\n' > "$T/bin/runuser"
+chmod +x "$T/bin/runuser"
+envck() {
+  SEVERANCE_HOME_ROOT=$T/homes; export SEVERANCE_HOME_ROOT
+  render acme _pv_check_env_others
+  unset SEVERANCE_HOME_ROOT
+}
+printf 'GDK_BACKEND=wayland\nXCURSOR_SIZE=48\n' > "$EH/40-desktop.conf"
+case $(envck) in *"[OK]"*"no other"*) ;;
+  *) fail "a hints file with no severance names was refused: $(envck)" ;;
+esac
+printf 'MOZ_ENABLE_WAYLAND=1\nWAYLAND_DISPLAY=wayland-1\n' \
+  > "$EH/60-late.conf"
+case $(envck) in *"[FAIL]"*"60-late.conf:WAYLAND_DISPLAY"*) ;;
+  *) fail "an override of WAYLAND_DISPLAY was not named: $(envck)" ;;
+esac
+rm -f "$EH/60-late.conf" "$T/bin/runuser"
 rm -f "$ED/off"
 
 # The TEMPLATE itself: who it runs as, and where its socket lives. %i, the

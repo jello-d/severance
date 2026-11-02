@@ -407,6 +407,35 @@ _pv_check_ids() {
   else _bad "$EN_ACCOUNT: linger is off"; fi
 }
 
+# No OTHER environment.d file may set a name severance sets. The files are
+# read in name order, so one sorting after ours silently replaces the
+# enclave's own socket, and one sorting before is dead text that reads as if
+# it mattered. (An override cannot reach the owner's sockets, whose directory
+# is 0700, so this guards against quiet breakage rather than an escape.) The
+# names come from the render itself, so the list cannot drift from what
+# severance writes. Read AS THE ACCOUNT: it is the account's directory.
+_pv_check_env_others() {
+  _pv_names=$(_pv_render_env |
+    sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p')
+  # shellcheck disable=SC2086
+  _pv_hit=$(runuser -u "$EN_ACCOUNT" -- sh -c '
+    cd "$1" 2>/dev/null || exit 0
+    shift
+    for f in *.conf; do
+      [ -f "$f" ] && [ "$f" != 50-severance.conf ] || continue
+      for n; do
+        grep -q "^[[:space:]]*$n=" "$f" && printf "%s:%s\n" "$f" "$n"
+      done
+    done
+    exit 0' _ "$EN_HOME/.config/environment.d" $_pv_names 2>/dev/null) ||
+    _pv_hit="(could not read the directory)"
+  if [ -z "$_pv_hit" ]; then
+    _ok "no other environment.d file sets severance's names"
+  else
+    _bad "environment.d overrides severance:" $_pv_hit
+  fi
+}
+
 _pv_check_share() {
   if _pv_render_share | cmp -s - "$TMPFILES_DIR/severance-$EN_NAME.conf" &&
      _pv_render_parent | cmp -s - "$TMPFILES_DIR/severance.conf"; then
@@ -423,6 +452,7 @@ _pv_check_share() {
     _ok "environment.d current"
   else _bad "environment.d missing or stale (re-run provision)"; fi
   [ "$(id -u)" = 0 ] || return 0
+  _pv_check_env_others
   if _pv_render_portals | cmp -s - \
        "$EN_HOME/.config/xdg-desktop-portal/portals.conf" &&
      _pv_render_xdpw | cmp -s - \
