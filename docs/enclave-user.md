@@ -306,7 +306,8 @@ in the user install. Enclave-side helpers run from /opt/severance too.
     severance enclave-of      NEW. pid|uid <N>: 0 name, 1 none, 2 unknown
     severance guard           UNCHANGED exits; restated by uid
     severance enclaves        NEW. One line per enclave, tab-separated:
-                              name, account, uid, home, share dir.
+                              name, account, uid, home, share dir,
+                              then sockets: display, audio, video, tray.
                               uid is `-` until the account exists.
     relay marker              NEW. App name = enclave name (see above)
     share dir layout          NEW. The sockets' names, and enclave/tray-bus

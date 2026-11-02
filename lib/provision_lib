@@ -287,9 +287,9 @@ _pv_render_env() {
   echo "# Written by severance for enclave $EN_NAME; re-written on every"
   echo "# provision. Change the enclave record, not this file."
   echo "SEVERANCE_ENCLAVE=$EN_NAME"
-  echo "WAYLAND_DISPLAY=$EN_SHARE/wayland-0"
-  echo "PULSE_SERVER=unix:$EN_SHARE/pulse"
-  echo "PIPEWIRE_REMOTE=$EN_SHARE/pipewire-0"
+  echo "WAYLAND_DISPLAY=$EN_SOCK_DISPLAY"
+  echo "PULSE_SERVER=unix:$EN_SOCK_AUDIO"
+  echo "PIPEWIRE_REMOTE=$EN_SOCK_VIDEO"
   [ "$EN_DOCKER" = yes ] &&
     echo "DOCKER_HOST=unix:///run/severance-docker-$EN_ACCOUNT/docker.sock"
   return 0
@@ -628,9 +628,8 @@ _pv_account_gone() {
 _pv_unshare() {
   _pv_do rm -f "$TMPFILES_DIR/severance-$EN_NAME.conf"
   [ -d "$EN_SHARE" ] || return 0
-  _pv_do rm -f "$EN_SHARE/wayland-0" "$EN_SHARE/pulse" "$EN_SHARE/relay" \
-    "$EN_SHARE/pipewire-0" "$EN_SHARE/pipewire-0.lock" \
-    "$EN_SHARE/enclave/tray-bus"
+  _pv_do rm -f "$EN_SOCK_DISPLAY" "$EN_SOCK_AUDIO" "$EN_SHARE/relay" \
+    "$EN_SOCK_VIDEO" "$EN_SOCK_VIDEO.lock" "$EN_SOCK_TRAY"
   if [ -d "$EN_SHARE/enclave" ]; then
     _pv_do rmdir "$EN_SHARE/enclave" ||
       echo "  $EN_SHARE/enclave not empty; left" >&2

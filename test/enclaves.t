@@ -43,25 +43,42 @@ rc=0; out=$(env SEVERANCE_ENCLAVES_DIR="$T/nope" sh "$SEV" enclaves) || rc=$?
 printf 'owner=alice\ngit_remote_glob=*acme*\n' > "$ED/acme"
 printf '# a comment\nowner=alice\ndocker=no\n' > "$ED/beta"
 out=$(sev enclaves) || fail "a clean registry exited non-zero: $out"
+# Fields 1 to 5 never move; the published sockets follow (display, audio,
+# video, tray), each an absolute path under the share dir.
+socks() {   # <share dir>: the four socket fields, tab-led
+  printf '\t%s/wayland-0\t%s/pulse\t%s/pipewire-0\t%s/enclave/tray-bus' \
+    "$1" "$1" "$1" "$1"
+}
 want="acme${TAB}alice-acme${TAB}990${TAB}/home/alice-acme"
-want="$want${TAB}/run/severance/acme"
+want="$want${TAB}/run/severance/acme$(socks /run/severance/acme)"
 printf '%s\n' "$out" | grep -qxF "$want" ||
   fail "acme line wrong; got: $out"
 # beta's account does not exist yet, so its uid is '-', never empty: an empty
 # field would shift every later column for a consumer splitting on TAB.
 want="beta${TAB}alice-beta${TAB}-${TAB}/home/alice-beta"
-want="$want${TAB}/run/severance/beta"
+want="$want${TAB}/run/severance/beta$(socks /run/severance/beta)"
 printf '%s\n' "$out" | grep -qxF "$want" ||
   fail "an unprovisioned enclave's uid is not '-'; got: $out"
-n=$(printf '%s\n' "$out" | awk -F'\t' 'NF != 5' | wc -l)
-[ "$n" -eq 0 ] || fail "a line without exactly five fields: $out"
+n=$(printf '%s\n' "$out" | awk -F'\t' 'NF != 9' | wc -l)
+[ "$n" -eq 0 ] || fail "a line without exactly nine fields: $out"
+# The ENVIRONMENT the enclave gets names the same sockets, so a consumer
+# reading the list and the enclave itself cannot disagree about a path.
+S=/run/severance/acme
+envout=$(env SEV_LIB="$HERE/lib" SEVERANCE_ENCLAVES_DIR="$ED" \
+  PATH="$T/bin:$PATH" sh -c '. "$SEV_LIB/common_lib"
+  . "$SEV_LIB/provision_lib"; en_load acme && _pv_render_env')
+for l in "WAYLAND_DISPLAY=$S/wayland-0" "PULSE_SERVER=unix:$S/pulse" \
+  "PIPEWIRE_REMOTE=$S/pipewire-0"; do
+  printf '%s\n' "$envout" | grep -qxF "$l" ||
+    fail "the environment and the list disagree: no '$l' in $envout"
+done
 
-# SEVERANCE_SHARE_ROOT moves the share dir, and only that.
+# SEVERANCE_SHARE_ROOT moves the share dir, and the sockets in it with it.
 out=$(env SEVERANCE_SHARE_ROOT=/srv/sev sh -c '
   SEVERANCE_ENCLAVES_DIR="$1" PATH="$2:$PATH" sh "$3" enclaves' _ \
   "$ED" "$T/bin" "$SEV" | grep '^acme')
 case $out in
-  *"${TAB}/srv/sev/acme") ;;
+  *"${TAB}/srv/sev/acme$(socks /srv/sev/acme)") ;;
   *) fail "SEVERANCE_SHARE_ROOT not honoured: $out" ;;
 esac
 

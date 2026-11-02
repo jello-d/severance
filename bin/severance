@@ -77,7 +77,8 @@ spelling fails loud rather than being quietly aliased:
                              no such process, or an unreadable record)
   enclaves                   one line per enclave, TAB-separated: name,
                              account, uid (- until created), home, share
-                             dir. exit 0 = the list is COMPLETE; exit 1 = a
+                             dir, then the sockets: display, audio, video,
+                             tray. exit 0 = the list is COMPLETE; exit 1 = a
                              record could not be read (named on stderr), and
                              the list must not be treated as complete
 There is deliberately nothing else. `show` is a human report, not a contract.

@@ -109,6 +109,17 @@ required, since a pid and a uid are both plain numbers. While the group model
 exists, a pid is also asked about it; a uid cannot be. Key on the NAME, which
 survives a forget and re-provision, while the uid behind it may not.
 .TP
+.B enclaves
+The enclave registry, one line per enclave, TAB-separated: name, account,
+uid (\fB-\fR until the account exists), home, share dir, and then the
+enclave's sockets as absolute paths: display (the restricted Wayland
+socket), audio (a pulse native socket), video (the PipeWire socket) and
+tray (the tray bus, served by the enclave). A socket exists only while its
+side serves it. Columns are only ever APPENDED, so take fields by number.
+Exit 0 means the list is complete; exit 1 means a record could not be read
+(named on stderr) while the readable ones are still printed, so the list
+must not be acted on as complete.
+.TP
 .B guard
 Exit 1, with a message on stderr, when the process is inside a work tree
 WITHOUT the enclave group; else exit 0. The kernel wall is the real

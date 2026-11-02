@@ -201,7 +201,9 @@ number could only claim.
 - `severance guard`: exit 0 ok, 1 refuse; the message goes to stderr.
 - `severance enclaves`: the enclave REGISTRY (`/etc/severance/enclaves`),
   one line per enclave, TAB-separated: name, account, uid (`-` until the
-  account exists), home, share dir. Exit **0** means the list is complete;
+  account exists), home, share dir, then the enclave's sockets as absolute
+  paths: display, audio, video, tray. Columns are only ever APPENDED, so
+  take fields by number. Exit **0** means the list is complete;
   **1** means a record could not be read (named on stderr) while the
   readable ones are still printed, so a consumer must not act on it as a
   complete list. Part of the one-account-per-enclave model being built

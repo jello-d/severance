@@ -60,21 +60,23 @@ def enclaves():
              % (r.returncode, r.stderr.strip()))
     out = []
     for line in r.stdout.splitlines():
+        # Fields by NUMBER, and more may be appended later: 1 the name, 5
+        # the share dir, 8 the published video socket (breaking-changes 19).
         f = line.split("\t")
-        if len(f) != 5:
+        if len(f) < 8:
             warn("ignored a malformed enclaves line: %r" % line)
             continue
-        name, share = f[0], f[4]
+        name, share, sock = f[0], f[4], f[7]
         try:
             st = os.stat(share)
         except OSError:
             continue
         if st.st_uid != os.getuid():
             continue
-        if len(os.path.join(share, "pipewire-0")) > 100:
+        if len(sock) > 100:
             warn("%s: socket path too long for a unix socket" % name)
             continue
-        out.append((name, share))
+        out.append((name, sock))
     return out
 
 
@@ -82,8 +84,7 @@ def render(text, found):
     if ANCHOR not in text:
         raise RuntimeError("the stock sockets line is not where expected")
     socks = ['{ name = "pipewire-0" }', '{ name = "pipewire-0-manager" }']
-    socks += [SOCKET.format(path=os.path.join(s, "pipewire-0"), name=n)
-              for n, s in found]
+    socks += [SOCKET.format(path=s, name=n) for n, s in found]
     return text.replace(ANCHOR, "sockets = [ " +
                         "\n                ".join(socks) + " ]", 1)
 

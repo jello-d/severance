@@ -415,3 +415,20 @@ interface is a desktop choice, so it is the integrator's; severance still
 writes the wlroots portal's chooser config, and `enclave check` now FAILS
 when no portals config exists or one does not route ScreenCast to wlr. An
 integrator that relied on severance's file must place its own.
+
+## 19. `severance enclaves` publishes the enclave's sockets
+
+An ADDITION: four columns appended to each line, after the share dir.
+
+    6  display   <share>/wayland-0          the restricted Wayland socket
+    7  audio     <share>/pulse              a pulse native socket
+    8  video     <share>/pipewire-0         the PipeWire socket
+    9  tray      <share>/enclave/tray-bus   the tray bus (entry 18)
+
+Absolute paths, the same strings the enclave's own environment carries
+(WAYLAND_DISPLAY, PULSE_SERVER without its `unix:`, PIPEWIRE_REMOTE). A
+consumer that composed `<share>/<name>` itself should read the column
+instead: those names were never a contract, and the day one moves, a
+composed path fails with nothing to say why. A reader taking fields 1 to 5
+by number is unaffected; one that required EXACTLY five fields must accept
+more, since columns are only ever appended.

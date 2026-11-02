@@ -15,6 +15,13 @@
 #   (SEVERANCE_SHARE_ROOT and SEVERANCE_HOME_ROOT move those two roots, for
 #   tests; nothing else should set them)
 #   EN_SHARE    $SEV_SHARE_ROOT/<name>  EN_UID    from passwd, `-` if absent
+# and the share dir's PUBLISHED sockets (docs/breaking-changes.md 19), named
+# here once so nothing else composes them:
+#   EN_SOCK_DISPLAY  <share>/wayland-0     the restricted display
+#   EN_SOCK_AUDIO    <share>/pulse         audio, a pulse native socket
+#   EN_SOCK_VIDEO    <share>/pipewire-0    the PipeWire socket (video)
+#   EN_SOCK_TRAY     <share>/enclave/tray-bus  the tray bus (served by the
+#                                         ENCLAVE; the rest by the owner)
 # `owner` is a key rather than "whoever runs this" because the account name
 # must come out the same whether root, the owner or the enclave asks.
 
@@ -52,6 +59,7 @@ en_names() {
 en_reset() {
   EN_NAME= EN_OWNER= EN_ACCOUNT= EN_HOME= EN_SHARE= EN_UID=
   EN_DOCKER= EN_GIT_REMOTE_GLOB=
+  EN_SOCK_DISPLAY= EN_SOCK_AUDIO= EN_SOCK_VIDEO= EN_SOCK_TRAY=
 }
 
 # Load one record into EN_*. Returns 1 when there is no such record, 2 when
@@ -81,6 +89,8 @@ en_load() {   # <name>
   EN_NAME=$1 EN_OWNER=$_en_owner EN_ACCOUNT=$_en_owner-$1
   EN_HOME=$SEV_HOME_ROOT/$EN_ACCOUNT EN_SHARE=$SEV_SHARE_ROOT/$1
   EN_DOCKER=$_en_docker EN_GIT_REMOTE_GLOB=$_en_glob
+  EN_SOCK_DISPLAY=$EN_SHARE/wayland-0 EN_SOCK_AUDIO=$EN_SHARE/pulse
+  EN_SOCK_VIDEO=$EN_SHARE/pipewire-0 EN_SOCK_TRAY=$EN_SHARE/enclave/tray-bus
   EN_UID=$(getent passwd "$EN_ACCOUNT" 2>/dev/null | cut -d: -f3)
   [ -n "$EN_UID" ] || EN_UID=-
 }
@@ -106,7 +116,10 @@ _en_check() {   # <name> <file>
 }
 
 # `severance enclaves`: the MACHINE INTERFACE every integrator derives from.
-# One line per enclave, tab-separated: name, account, uid, home, share dir.
+# One line per enclave, tab-separated: name, account, uid, home, share dir,
+# then the published sockets: display, audio, video, tray (absolute paths;
+# a socket exists only while its side serves it). Columns are APPENDED,
+# never reordered, so a reader taking fields by number keeps working.
 # Exit 0 means the list is COMPLETE. A record that cannot be read is named on
 # stderr and makes the exit 1, while the readable ones are still printed: a
 # consumer must not treat a non-zero list as complete, because acting on it
@@ -116,8 +129,9 @@ sev_enclaves() {
   _en_rc=0
   for _en_n in $(en_names); do
     if en_load "$_en_n"; then
-      printf '%s\t%s\t%s\t%s\t%s\n' "$EN_NAME" "$EN_ACCOUNT" "$EN_UID" \
-        "$EN_HOME" "$EN_SHARE"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$EN_NAME" \
+        "$EN_ACCOUNT" "$EN_UID" "$EN_HOME" "$EN_SHARE" "$EN_SOCK_DISPLAY" \
+        "$EN_SOCK_AUDIO" "$EN_SOCK_VIDEO" "$EN_SOCK_TRAY"
     else
       _en_rc=1
     fi
