@@ -108,36 +108,41 @@ else
   echo "current.t: note: single-group user, nesting rank not exercised" >&2
 fi
 
-# --- the PID form reads /proc ------------------------------------------------
+# --- another process: `enclave-of pid` reads /proc ----------------------------
 # $$ is this test shell, which holds the same groups as the severance child.
 rm -f "$PG"/*
 mkprof alpha "$PRIMARY"
-out=$(sev current $$) || fail "current PID: non-zero exit"
-[ "$out" = alpha ] || fail "current PID: got '$out', want 'alpha'"
+out=$(sev enclave-of pid $$) || fail "enclave-of pid: non-zero exit"
+[ "$out" = alpha ] || fail "enclave-of pid: got '$out', want 'alpha'"
 
-# A pid naming NO LIVE PROCESS is unanswerable, and must be an ERROR rather
-# than a silent empty answer. Silence would report a process that IS behind the
-# boundary as personal, and a caller testing only [ -n "$p" ] would believe it.
-# Asked WHILE alpha would match for this process, so an implementation that
-# ignored the pid and answered for itself would wrongly print alpha here.
+# A pid naming NO LIVE PROCESS is unanswerable: exit 2, never the "in none"
+# of exit 1, which a caller would take as "personal". Asked WHILE alpha
+# would match for this process, so an implementation that ignored the pid
+# and answered for itself would wrongly print alpha here.
 dead=999999
 while [ -d "/proc/$dead" ]; do dead=$((dead + 1)); done
-out=$(sev current "$dead" 2>/dev/null) && fail "current: exit 0 on a dead pid"
-rc=0; sev current "$dead" >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "current: got rc=$rc for a dead pid, want 2"
-[ -z "$out" ] || fail "current: answered '$out' for a dead pid (ignored PID?)"
-err=$(sev current "$dead" 2>&1 >/dev/null) || true
+rc=0; out=$(sev enclave-of pid "$dead" 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "enclave-of pid: got rc=$rc for a dead pid, want 2"
+[ -z "$out" ] || fail "enclave-of pid: answered '$out' for a dead pid"
+err=$(sev enclave-of pid "$dead" 2>&1 >/dev/null) || true
 case $err in
   *"no such process"*) ;;
-  *) fail "current: dead pid did not say why: '$err'" ;;
+  *) fail "enclave-of pid: dead pid did not say why: '$err'" ;;
 esac
 
-# ...and a LIVE pid outside every enclave is silent-and-zero, the other way of
-# printing nothing. The two cases must not be confused.
-
+# ...and a LIVE pid outside every enclave is exit 1 and silent: answered,
+# "in none", which the two cases above must not be confused with.
 mkprof alpha "$NONE"
-out=$(sev current $$) || fail "current PID: non-zero exit for a live pid"
-[ -z "$out" ] || fail "current PID: printed '$out' while outside"
+rc=0; out=$(sev enclave-of pid $$ 2>&1) || rc=$?
+[ "$rc" = 1 ] && [ -z "$out" ] ||
+  fail "enclave-of pid outside: rc=$rc '$out', want 1 and silence"
+
+# `current <PID>` is RETIRED, loudly, naming its replacement. Exit 2: a
+# stale caller cannot read the refusal as an answer.
+rc=0; err=$(sev current $$ 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "current PID: rc=$rc, want 2 (retired)"
+case $err in *"enclave-of pid"*) ;;
+  *) fail "current PID: refusal does not name enclave-of: '$err'" ;; esac
 
 # --- it prints the PROFILE name, not the group name --------------------------
 rm -f "$PG"/*
@@ -162,11 +167,14 @@ esac
 rm -f "$PG/broken"
 
 # --- argument validation -----------------------------------------------------
-sev current notapid 2>/dev/null && fail "current: exit 0 on a non-numeric pid"
-rc=0; sev current notapid 2>/dev/null || rc=$?
-[ "$rc" = 2 ] || fail "current: got rc=$rc on a bad pid, want 2"
-rc=0; sev current 1 2 2>/dev/null || rc=$?
-[ "$rc" = 2 ] || fail "current: got rc=$rc on too many args, want 2"
+# The keyword is required: a pid and a uid are both numbers, so a bare
+# number is a usage error, never a guess at which one was meant.
+for bad in "" "pid" "pid notapid" "uid -1" "pid 1 2" "1" "1234" "gid 0"; do
+  rc=0
+  # shellcheck disable=SC2086
+  sev enclave-of $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "enclave-of '$bad': rc=$rc, want 2 (usage)"
+done
 
 # --- a query NEVER prompts ---------------------------------------------------
 [ -e "$T/sudo-called" ] && fail "current reached sudo"

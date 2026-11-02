@@ -172,23 +172,3 @@ en_by_uid() {   # <uid>
   [ "$_en_unsure" = 0 ] || return 2
   return 1
 }
-
-# `severance enclave-of <uid>`: a CONTRACT (docs/breaking-changes.md 16).
-# For a consumer that holds a uid (a window's client, say) and wants the
-# DURABLE identity: the enclave NAME survives a forget and re-provision,
-# while the uid behind it may not. Exit 0 and the name; 1 when the uid is
-# no enclave's account (the owner, a system service, a uid nobody has); 2
-# when it cannot answer, and an answer of 1 there would be a guess.
-sev_enclave_of() {   # <uid>
-  [ "$#" -eq 1 ] || { echo "usage: severance enclave-of <uid>" >&2; return 2; }
-  case $1 in
-    ''|*[!0-9]*) echo "severance: enclave-of: not a uid: $1" >&2; return 2 ;;
-  esac
-  _en_rc=0; en_by_uid "$1" || _en_rc=$?
-  case $_en_rc in
-    0) printf '%s\n' "$EN_CURRENT" ;;
-    2) echo "severance: enclave-of: cannot answer for uid $1 (an enclave" \
-         "record that could be its account does not parse)" >&2 ;;
-  esac
-  return "$_en_rc"
-}

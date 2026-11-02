@@ -87,7 +87,7 @@ bad -x 'owner=alice\n' 'is not a DNS label' "a leading-hyphen name"
 bad aaaaaaaaaaaaaaaaaaaaaaaaaaa 'owner=alice\n' 'over 32 characters' \
   "an account name useradd would refuse"
 
-# --- current, by uid ----------------------------------------------------------
+# --- enclave-of pid, by uid ---------------------------------------------------
 # A fake /proc (SEV_PROC) plants a process with any uid, without one existing.
 # The group model is pointed at an EMPTY profiles dir, so a fall-through can
 # only answer "personal".
@@ -100,34 +100,34 @@ printf 'Name:\tx\nUid:\t991\t991\t991\t991\n' > "$T/proc/$$/status"
 cur() {
   env SEV_PROC="${CP:-$T/proc}" WC_PROFILES_DIR="$T/nopro" \
     WC_DEFAULT_FILE="$T/nodefault" SEVERANCE_ENCLAVES_DIR="$ED" \
-    PATH="$T/bin:$PATH" sh "$SEV" current "$@"
+    PATH="$T/bin:$PATH" sh "$SEV" enclave-of pid "$@"
 }
-out=$(cur 4242) || fail "current for an enclave account exited non-zero"
-[ "$out" = acme ] || fail "current for uid 990: '$out', want acme"
+out=$(cur 4242) || fail "enclave-of pid for an enclave account exited non-zero"
+[ "$out" = acme ] || fail "enclave-of pid for uid 990: '$out', want acme"
 
-# A personal process (this test's own shell, real /proc): nothing, exit 0.
+# A personal process (this test's own shell, real /proc): nothing, exit 1.
 rc=0; out=$(CP=/proc cur "$$") || rc=$?
-[ "$rc" = 0 ] && [ -z "$out" ] ||
-  fail "current for a personal process: rc=$rc out='$out'"
+[ "$rc" = 1 ] && [ -z "$out" ] ||
+  fail "enclave-of pid for a personal process: rc=$rc out='$out'"
 
 # An account that would belong to an UNREADABLE record cannot be called
 # personal: exit 2, never an empty "not in an enclave".
 printf 'owner=alice\ncolour=red\n' > "$ED/broke"
 rc=0; out=$(cur "$$" 2>/dev/null) || rc=$?
-[ "$rc" = 2 ] || fail "current behind a broken record: rc=$rc out='$out'"
+[ "$rc" = 2 ] || fail "enclave-of pid behind a broken record: rc=$rc out='$out'"
 rm -f "$ED/broke"
 
 rc=0; cur 999999 >/dev/null 2>&1 || rc=$?
-[ "$rc" = 2 ] || fail "current for a missing pid exited $rc, want 2"
+[ "$rc" = 2 ] || fail "enclave-of pid for a missing pid exited $rc, want 2"
 
 # --- usage ------------------------------------------------------------------
 rc=0; sev enclaves extra >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "an extra argument exited $rc, want 2"
 
-# --- enclave-of: the same answer, from a uid ----------------------------------
+# --- enclave-of uid: the same answer, from a uid ------------------------------
 of() {
   env WC_PROFILES_DIR="$T/nopro" SEVERANCE_ENCLAVES_DIR="$ED" \
-    PATH="$T/bin:$PATH" sh "$SEV" enclave-of "$@"
+    PATH="$T/bin:$PATH" sh "$SEV" enclave-of uid "$@"
 }
 rc=0; out=$(of 990) || rc=$?
 [ "$rc $out" = "0 acme" ] || fail "enclave-of 990: rc=$rc '$out', want 0 acme"
@@ -145,6 +145,6 @@ for bad in "" "abc" "990 991" "-1"; do
   rc=0
   # shellcheck disable=SC2086
   of $bad >/dev/null 2>&1 || rc=$?
-  [ "$rc" = 2 ] || fail "enclave-of '$bad': rc=$rc, want 2 (usage)"
+  [ "$rc" = 2 ] || fail "enclave-of uid '$bad': rc=$rc, want 2 (usage)"
 done
-pass "registry list, bad records named, current and enclave-of by uid"
+pass "registry list, bad records named, enclave-of pid and uid"

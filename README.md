@@ -76,7 +76,8 @@ can undo). `./setup.sh paths` prints every root the package owns, one
     work run <profile> -- <cmd> ...     # ...in a named enclave
 
     severance current                   # which enclave is this process in?
-    severance current "$PID"            # ...or another process
+    severance enclave-of pid "$PID"     # ...another process, from anywhere
+    severance enclave-of uid "$UID"     # ...an account, from anywhere
 
 With several profiles, mark the active one:
 
@@ -185,12 +186,18 @@ whether this severance supports a verb should RUN it: `severance current`
 either answers or does not, which is what `doctor` does, and what a version
 number could only claim.
 
-- `severance current [PID]`: the enclave's name on stdout, or nothing. A
-  process whose real uid is a registry enclave's account answers first (the
-  enclave-user model); otherwise the group model is asked.
+- `severance current`: the enclave THIS process is in, on stdout, or
+  nothing. A process whose real uid is a registry enclave's account answers
+  first (the enclave-user model); otherwise the group model is asked.
   Exit **0** answered (empty output means "not in an enclave", which is not an
-  error); **2** could not answer (the pid is malformed or names no live
-  process).
+  error); **2** could not answer.
+- `severance enclave-of pid <PID>` and `severance enclave-of uid <UID>`:
+  the same question about ANOTHER process or an account, runnable by anyone
+  from anywhere. One contract for both: exit **0** and the enclave's name;
+  **1**, silent, when in none; **2** could not answer (a bad argument, no
+  such process, or an unreadable enclave record). The `pid`/`uid` keyword is
+  required, since both are plain numbers. Key on the NAME: an enclave can
+  get a new uid when it is re-provisioned.
 - `severance guard`: exit 0 ok, 1 refuse; the message goes to stderr.
 - `severance enclaves`: the enclave REGISTRY (`/etc/severance/enclaves`),
   one line per enclave, TAB-separated: name, account, uid (`-` until the

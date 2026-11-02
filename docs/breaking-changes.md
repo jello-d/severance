@@ -350,21 +350,39 @@ session, a nested bare `work` still means that session's own profile.
 
 The marker itself is unchanged, and so is every other reader of it.
 
-## 16. New contract: `severance enclave-of <uid>`
+## 16. New contract: `severance enclave-of pid|uid`
 
-An ADDITION, recorded because every contract is: the enclave whose account a
-uid is.
+An ADDITION, recorded because every contract is: which enclave ANOTHER
+process, or an account, is in. For a consumer outside the enclave, such as a
+window manager tool asking about a window's client. Runnable by anyone.
 
-    severance enclave-of UID   exit 0 = the enclave's name on stdout
-                               exit 1 = no enclave's account (silent)
-                               exit 2 = could not answer (not a uid, or an
-                                        unreadable record that could be its
-                                        account's)
+    severance enclave-of pid PID   exit 0 = the enclave's name on stdout
+    severance enclave-of uid UID   exit 1 = in none (silent)
+                                   exit 2 = could not answer (a bad
+                                            argument, no such process, or an
+                                            unreadable record that could be
+                                            its account's)
 
-It shares its implementation with `current`, which asks the same question of
-a process through its real uid, so the two cannot disagree.
+The keyword is required: a pid and a uid are both plain numbers, and nothing
+guesses which was meant. Both share their implementation with `current`, so
+the answers cannot disagree. While the group model exists a pid is also asked
+about it, which a uid cannot be; the return contract is the same either way.
+(A uid-only form of this verb existed for an hour on 2026-11-02 and was never
+consumed.)
 
 **Key on the name, not the uid.** A forget and re-provision can hand the
 same enclave a different uid, and a freed uid can later belong to someone
 else, so a consumer that remembers a window or a process should store the
 name this returns. Resolve when the thing appears, not later.
+
+## 17. `severance current` takes no PID
+
+`current` answers for THIS process only. Asking about another one is
+`severance enclave-of pid <PID>` (entry 16), which says "in none" with exit
+1 rather than `current`'s empty exit 0: "where am I" and "where is that" are
+different questions with different callers, and each now has one shape.
+
+    severance current "$PID"   ->   severance enclave-of pid "$PID"
+
+The old spelling fails loud, exit 2, naming the replacement. Every consumer
+found calls `current` bare, so none needed to change.

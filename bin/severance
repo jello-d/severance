@@ -39,8 +39,9 @@ usage: severance <command> [args]
   list                       provisioned profiles (* marks the default)
   show   [profile]           the resolved settings, as a human report
   use    <profile>|--clear   set (or clear) the default-profile marker
-  current [PID]              which enclave a process is IN (profile name, or
+  current                    which enclave THIS process is in (its name, or
                              nothing); non-zero only if it cannot tell
+  enclave-of pid|uid N       which enclave another process or account is in
   enclaves                   the enclave REGISTRY, one line per enclave
   enclave add <name> owner=<user> [key=val..]
                              declare an enclave in the registry (as root)
@@ -66,13 +67,14 @@ machine interface -- the STABLE contracts, consumed by other tools. Their
 output shape and exit codes do not change silently: a change to either is a
 BREAKING change, recorded in docs/breaking-changes.md, and the retired
 spelling fails loud rather than being quietly aliased:
-  current [PID]              exit 0 = answered (one word, or nothing when the
-                             process is in no enclave); exit 2 = could NOT
-                             answer (bad pid, or no such process)
+  current                    THIS process: exit 0 = answered (one word, or
+                             nothing when it is in no enclave); exit 2 =
+                             could NOT answer
   guard                      exit 0 ok / 1 refuse. Message on stderr.
-  enclave-of UID             the enclave UID is the account of: exit 0 and
-                             its name; 1 = no enclave's account; 2 = could
-                             NOT answer (bad uid, or an unreadable record)
+  enclave-of pid PID         ANOTHER process or account, from anywhere:
+  enclave-of uid UID         exit 0 and the enclave's name; 1 = in none
+                             (silent); 2 = could NOT answer (bad argument,
+                             no such process, or an unreadable record)
   enclaves                   one line per enclave, TAB-separated: name,
                              account, uid (- until created), home, share
                              dir. exit 0 = the list is COMPLETE; exit 1 = a
@@ -93,7 +95,7 @@ case $cmd in
   use)     . "$SEV_LIB/profile_lib"; sev_use "$@" ;;
   current) . "$SEV_LIB/profile_lib"; sev_current "$@" ;;
   enclaves) sev_enclaves "$@" ;;
-  enclave-of) sev_enclave_of "$@" ;;
+  enclave-of) . "$SEV_LIB/profile_lib"; sev_enclave_of "$@" ;;
   enclave)  . "$SEV_LIB/provision_lib"; sev_enclave "$@" ;;
   init)    . "$SEV_LIB/profile_lib"; sev_init "$@" ;;
   seal)    sev_sudo_prime; . "$SEV_LIB/seal_lib";   sev_seal "$@" ;;

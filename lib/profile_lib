@@ -74,28 +74,71 @@ sev_show() {
 # mux consumes it directly as its context-command (a non-zero exit reads as
 # `global` there, which is correct: mux must not name a context we could not
 # determine).
-sev_current() {   # [pid]
-  [ "$#" -le 1 ] || { echo "usage: severance current [PID]" >&2; return 2; }
-  case ${1:-} in
-    '') ;;
-    *[!0-9]*) echo "severance: current: not a pid: $1" >&2; return 2 ;;
-  esac
+sev_current() {
+  # The PID form moved to `enclave-of pid` (breaking-changes 17): a lookup
+  # about ANOTHER process is a different question from "where am I", with a
+  # different "none" signal. Refused loudly, never silently aliased.
+  if [ "$#" -gt 0 ]; then
+    echo "severance: current takes no argument; for another process use:" >&2
+    echo "  severance enclave-of pid <PID>" >&2
+    return 2
+  fi
   # The enclave-user model answers first, by uid; a process that is no
   # enclave's account is then asked about the group model, during the
   # transition when both exist (docs/enclave-user.md, "expand").
-  _rc=0; en_current "${1:-}" || _rc=$?
+  _rc=0; en_current || _rc=$?
   case $_rc in
     0) printf '%s\n' "$EN_CURRENT"; return 0 ;;
-    2) echo "severance: current: cannot answer for ${1:-this process}" \
-         "(no such process, or an unreadable enclave record)" >&2
+    2) echo "severance: current: cannot answer for this process (an" \
+         "unreadable enclave record)" >&2
        return 2 ;;
   esac
-  _rc=0; wc_current "${1:-}" || _rc=$?
+  _rc=0; wc_current || _rc=$?
   case $_rc in
     0) printf '%s\n' "$WC_CURRENT" ;;
     1) ;;                                 # outside every enclave: silent, ok
-    *) echo "severance: current: no such process: $1" >&2; return 2 ;;
+    *) echo "severance: current: cannot answer for this process" >&2
+       return 2 ;;
   esac
+}
+
+# `severance enclave-of pid <PID> | uid <UID>`: the OUTSIDE lookups, one
+# contract for both (breaking-changes 16 and 17). Exit 0 and the enclave's
+# name; 1, silent, when in none; 2 when it cannot answer, where 1 would be a
+# guess. Runnable by anyone: it reads /proc, passwd and the world-readable
+# registry. The keyword is REQUIRED because a pid and a uid are both plain
+# numbers, so nothing decides between them by guessing.
+#
+# A pid is asked of BOTH models while the group model exists (a process can
+# hold a work group; a uid alone cannot say so), so the facts differ between
+# the two forms during the transition and the return contract does not.
+sev_enclave_of() {   # pid <PID> | uid <UID>
+  [ "$#" -eq 2 ] || { _sev_of_usage; return 2; }
+  case $2 in
+    ''|*[!0-9]*) echo "severance: enclave-of: not a $1: $2" >&2; return 2 ;;
+  esac
+  case $1 in
+    uid) _rc=0; en_by_uid "$2" || _rc=$? ;;
+    pid) _rc=0; en_current "$2" || _rc=$? ;;
+    *) _sev_of_usage; return 2 ;;
+  esac
+  case $_rc in
+    0) printf '%s\n' "$EN_CURRENT"; return 0 ;;
+    2) echo "severance: enclave-of: cannot answer for $1 $2 (no such" \
+         "process, or an unreadable enclave record)" >&2
+       return 2 ;;
+  esac
+  [ "$1" = pid ] || return 1
+  _rc=0; wc_current "$2" || _rc=$?
+  case $_rc in
+    0) printf '%s\n' "$WC_CURRENT"; return 0 ;;
+    1) return 1 ;;
+    *) echo "severance: enclave-of: no such process: $2" >&2; return 2 ;;
+  esac
+}
+_sev_of_usage() {
+  echo "usage: severance enclave-of pid <PID>" >&2
+  echo "       severance enclave-of uid <UID>" >&2
 }
 
 # Set (or clear) the default-profile marker.

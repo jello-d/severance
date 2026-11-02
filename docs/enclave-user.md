@@ -211,10 +211,11 @@ for sign-in flows when the enclave had no browser.)
 
 ## Detection and entry
 
-DETECTION is `severance current [PID]`: read the pid's real uid from
-`/proc`, map it through the registry to an enclave name, print the name or
-nothing. `/proc/<pid>/status` is readable by anyone, so either identity gets
-the same answer. Output and exit codes UNCHANGED (one word or nothing; exit 2
+DETECTION is `severance current` for this process, and `severance
+enclave-of pid|uid` for another one: read the pid's real uid from `/proc`,
+map it through the registry to an enclave name, print the name. `/proc/<pid>/
+status` is readable by anyone, so either identity gets the same answer.
+`current` keeps its output and exit codes (one word or nothing; exit 2
 when it cannot answer, including when the process's account would belong to
 a record that does not parse, so a broken record cannot make a work process
 read as personal). BUILT: `en_current`, asked before the group model.
@@ -289,7 +290,8 @@ in the user install. Enclave-side helpers run from /opt/severance too.
 
 ## Contracts
 
-    severance current [PID]   UNCHANGED output and exits; decides by uid
+    severance current         this process; exits UNCHANGED; by uid
+    severance enclave-of      NEW. pid|uid <N>: 0 name, 1 none, 2 unknown
     severance guard           UNCHANGED exits; restated by uid
     severance enclaves        NEW. One line per enclave, tab-separated:
                               name, account, uid, home, share dir.
