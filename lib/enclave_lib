@@ -147,7 +147,17 @@ en_current() {   # [pid]
   else
     _en_uid=$(id -u)
   fi
-  _en_who=$(getent passwd "$_en_uid" 2>/dev/null | cut -d: -f1)
+  en_by_uid "$_en_uid"
+}
+
+# The enclave a UID is the account of, the one implementation behind both
+# `current` (a process, through its real uid) and `enclave-of` (a uid
+# directly). Same returns as en_current: 0 an enclave's account (EN_CURRENT
+# set, EN_* loaded), 1 no enclave's account, 2 unanswerable because a record
+# that does not parse could be this account's.
+en_by_uid() {   # <uid>
+  EN_CURRENT=
+  _en_who=$(getent passwd "$1" 2>/dev/null | cut -d: -f1)
   [ -n "$_en_who" ] || { en_reset; return 1; }
   _en_unsure=0
   for _en_n in $(en_names); do
@@ -161,4 +171,24 @@ en_current() {   # [pid]
   en_reset
   [ "$_en_unsure" = 0 ] || return 2
   return 1
+}
+
+# `severance enclave-of <uid>`: a CONTRACT (docs/breaking-changes.md 16).
+# For a consumer that holds a uid (a window's client, say) and wants the
+# DURABLE identity: the enclave NAME survives a forget and re-provision,
+# while the uid behind it may not. Exit 0 and the name; 1 when the uid is
+# no enclave's account (the owner, a system service, a uid nobody has); 2
+# when it cannot answer, and an answer of 1 there would be a guess.
+sev_enclave_of() {   # <uid>
+  [ "$#" -eq 1 ] || { echo "usage: severance enclave-of <uid>" >&2; return 2; }
+  case $1 in
+    ''|*[!0-9]*) echo "severance: enclave-of: not a uid: $1" >&2; return 2 ;;
+  esac
+  _en_rc=0; en_by_uid "$1" || _en_rc=$?
+  case $_en_rc in
+    0) printf '%s\n' "$EN_CURRENT" ;;
+    2) echo "severance: enclave-of: cannot answer for uid $1 (an enclave" \
+         "record that could be its account does not parse)" >&2 ;;
+  esac
+  return "$_en_rc"
 }

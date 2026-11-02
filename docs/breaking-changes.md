@@ -349,3 +349,22 @@ is the wrong-enclave mistake `work` exists to make impossible.
 session, a nested bare `work` still means that session's own profile.
 
 The marker itself is unchanged, and so is every other reader of it.
+
+## 16. New contract: `severance enclave-of <uid>`
+
+An ADDITION, recorded because every contract is: the enclave whose account a
+uid is.
+
+    severance enclave-of UID   exit 0 = the enclave's name on stdout
+                               exit 1 = no enclave's account (silent)
+                               exit 2 = could not answer (not a uid, or an
+                                        unreadable record that could be its
+                                        account's)
+
+It shares its implementation with `current`, which asks the same question of
+a process through its real uid, so the two cannot disagree.
+
+**Key on the name, not the uid.** A forget and re-provision can hand the
+same enclave a different uid, and a freed uid can later belong to someone
+else, so a consumer that remembers a window or a process should store the
+name this returns. Resolve when the thing appears, not later.

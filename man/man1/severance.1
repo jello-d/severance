@@ -99,6 +99,18 @@ still reported. Where nested enclaves leave a process holding several groups,
 the innermost wins: the group
 .BR "sudo -g" " made primary."
 .TP
+.BI enclave-of " uid"
+Print the enclave whose account
+.I uid
+is, and exit 0. Exit 1, silently, when it is no enclave's account (the
+owner, a system service, a uid nobody has). Exit 2 when it could NOT answer:
+the argument is not a uid, or an enclave record that could be this account's
+does not parse, where answering 1 would be a guess. For a caller holding a
+uid rather than a process, such as a window's client: key on the NAME, which
+survives a forget and re-provision, while the uid behind it may not.
+.B current
+asks the same question of a process, through its real uid.
+.TP
 .B guard
 Exit 1, with a message on stderr, when the process is inside a work tree
 WITHOUT the enclave group; else exit 0. The kernel wall is the real

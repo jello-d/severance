@@ -70,6 +70,9 @@ spelling fails loud rather than being quietly aliased:
                              process is in no enclave); exit 2 = could NOT
                              answer (bad pid, or no such process)
   guard                      exit 0 ok / 1 refuse. Message on stderr.
+  enclave-of UID             the enclave UID is the account of: exit 0 and
+                             its name; 1 = no enclave's account; 2 = could
+                             NOT answer (bad uid, or an unreadable record)
   enclaves                   one line per enclave, TAB-separated: name,
                              account, uid (- until created), home, share
                              dir. exit 0 = the list is COMPLETE; exit 1 = a
@@ -90,6 +93,7 @@ case $cmd in
   use)     . "$SEV_LIB/profile_lib"; sev_use "$@" ;;
   current) . "$SEV_LIB/profile_lib"; sev_current "$@" ;;
   enclaves) sev_enclaves "$@" ;;
+  enclave-of) sev_enclave_of "$@" ;;
   enclave)  . "$SEV_LIB/provision_lib"; sev_enclave "$@" ;;
   init)    . "$SEV_LIB/profile_lib"; sev_init "$@" ;;
   seal)    sev_sudo_prime; . "$SEV_LIB/seal_lib";   sev_seal "$@" ;;

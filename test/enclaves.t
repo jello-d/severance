@@ -124,4 +124,27 @@ rc=0; cur 999999 >/dev/null 2>&1 || rc=$?
 rc=0; sev enclaves extra >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "an extra argument exited $rc, want 2"
 
-pass "registry list, bad records named, current by uid"
+# --- enclave-of: the same answer, from a uid ----------------------------------
+of() {
+  env WC_PROFILES_DIR="$T/nopro" SEVERANCE_ENCLAVES_DIR="$ED" \
+    PATH="$T/bin:$PATH" sh "$SEV" enclave-of "$@"
+}
+rc=0; out=$(of 990) || rc=$?
+[ "$rc $out" = "0 acme" ] || fail "enclave-of 990: rc=$rc '$out', want 0 acme"
+rc=0; out=$(of "$(id -u)" 2>&1) || rc=$?
+[ "$rc" = 1 ] && [ -z "$out" ] ||
+  fail "enclave-of a personal uid: rc=$rc '$out', want 1 and silence"
+rc=0; out=$(of 31999 2>&1) || rc=$?
+[ "$rc" = 1 ] || fail "enclave-of a uid nobody has: rc=$rc, want 1"
+# Behind an unreadable record that could be its account: 2, never 1.
+printf 'owner=alice\ncolour=red\n' > "$ED/broke"
+rc=0; of 991 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "enclave-of behind a broken record: rc=$rc, want 2"
+rm -f "$ED/broke"
+for bad in "" "abc" "990 991" "-1"; do
+  rc=0
+  # shellcheck disable=SC2086
+  of $bad >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "enclave-of '$bad': rc=$rc, want 2 (usage)"
+done
+pass "registry list, bad records named, current and enclave-of by uid"
