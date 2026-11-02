@@ -108,11 +108,15 @@ Instead each enclave gets its own directory of narrowed sockets:
         pulse         an audio socket for this enclave only
         pipewire-0    a PipeWire socket for this enclave only (video)
         relay         the notification relay's login-user end
+        enclave/                       <account>:<login-user's group> 2710
+            tray-bus  the enclave's filtered tray bus (served BY the enclave)
 
 0710 with the ACCOUNT's own group lets the enclave traverse to a socket it
-names and nothing else in. Created by a tmpfiles line at boot (root); filled
-by the login user's session. Every socket in it is created and served by the
-LOGIN user's side; the enclave only ever connects.
+names and nothing else in. Created by tmpfiles lines at boot (root). Every
+socket at the top level is created and served by the LOGIN user's side and
+the enclave only connects; `enclave/` is the one place the ENCLAVE serves
+the login user, so it is the account's, setgid to the login user's primary
+group, and its sockets are made 0770 so only that group connects.
 
 - DISPLAY: a small helper in the login user's session binds `wayland-0` and
   registers it through `wp_security_context_manager_v1`, as Flatpak does
@@ -127,12 +131,16 @@ LOGIN user's side; the enclave only ever connects.
   which provision renders for its own install, places root-owned and
   enables globally; an ExecCondition lets only the owner run it. Proven
   against a private headless wayfire: a client on the socket sees exactly
-  the allowlist. SCREEN SHARING: provision writes the enclave's portal
-  config (sharing to the wlroots portal, the rest to gtk) naming
-  libexec/severance-share-chooser, an ORDINARY window (an enclave gets no
-  overlays, so the usual pickers cannot run) that offers only the
-  enclave's windows and declines when unanswered. Frames travel over
-  PipeWire: see VIDEO, below. UNTIL THE
+  the allowlist. SCREEN SHARING: provision writes the wlroots portal's
+  chooser config naming libexec/severance-share-chooser, an ORDINARY
+  window (an enclave gets no overlays, so the usual pickers cannot run)
+  that offers only the
+  enclave's windows and declines when unanswered, and restarts a running
+  wlroots portal when that config changes. WHICH backend serves which
+  portal interface (portals.conf) is a desktop choice and the
+  integrator's; `enclave check` asserts only that every portals config the
+  enclave has routes ScreenCast to wlr. Frames travel over PipeWire: see
+  VIDEO, below. UNTIL THE
   COMPOSITOR SUPPORTS THE ALLOWLIST, ENCLAVES GET NO DISPLAY AT ALL; there is
   no interim "open the socket" fallback.
 - AUDIO: one pulse address for the enclave, with ordinary access. The
@@ -167,6 +175,17 @@ LOGIN user's side; the enclave only ever connects.
   says why, so the login user keeps sound and enclaves lose only video.
   Wiring it into the login user's PipeWire unit is the integrator's.
 - NOTIFICATIONS: see the relay, below.
+- TRAY: an enclave app registers its StatusNotifier icon on the ENCLAVE's
+  session bus, which the login user cannot reach. libexec/severance-tray-bus
+  (the user unit severance-tray@<enclave>, in the enclave's manager) serves
+  a FILTERED proxy of that bus at `enclave/tray-bus`: the login user's tray
+  may own org.kde.StatusNotifierWatcher there and talk to org.kde.* names
+  (the items and their menus), and nothing else on that bus, the keyring
+  and portals included. LIMITS: an item registered by its unique name is
+  unreachable through a name filter, and org.kde.* also admits any other
+  org.kde service the enclave runs (none by default). BUILT AND TESTED:
+  test/tray.t over a private bus; removing the filter exposes the keyring
+  and fails it.
 
 ## The notification relay (owned here)
 
@@ -297,7 +316,7 @@ in the user install. Enclave-side helpers run from /opt/severance too.
                               name, account, uid, home, share dir.
                               uid is `-` until the account exists.
     relay marker              NEW. App name = enclave name (see above)
-    share dir layout          NEW. Names of the four sockets
+    share dir layout          NEW. The sockets' names, and enclave/tray-bus
     the WC_* reader           RETIRED at the contract step, below
 
 Each change is a `docs/breaking-changes.md` entry.

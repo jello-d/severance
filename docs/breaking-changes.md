@@ -386,3 +386,26 @@ different questions with different callers, and each now has one shape.
 
 The old spelling fails loud, exit 2, naming the replacement. Every consumer
 found calls `current` bare, so none needed to change.
+
+## 18. The share dir gains `enclave/tray-bus`; `portals.conf` is not ours
+
+Two changes to what an enclave's share dir and home hold.
+
+**A published path, added.** Each enclave's tray icons are reachable at
+
+    /run/severance/<enclave>/enclave/tray-bus
+
+a D-Bus socket filtered to the StatusNotifier protocol: a tray host may own
+`org.kde.StatusNotifierWatcher` there and talk to `org.kde.*` names, and
+reach nothing else on the enclave's bus. It is served by the ENCLAVE, from
+the user unit `severance-tray@<enclave>`, so a missing socket means that
+session is not running and should read as an empty tray. `enclave/` is the
+account's, setgid to the owner's primary group (2710); only that group
+connects. The share dir is `severance enclaves` field 5.
+
+**A file, given up.** Provision no longer writes the enclave's
+`.config/xdg-desktop-portal/portals.conf`. Which backend serves which portal
+interface is a desktop choice, so it is the integrator's; severance still
+writes the wlroots portal's chooser config, and `enclave check` now FAILS
+when no portals config exists or one does not route ScreenCast to wlr. An
+integrator that relied on severance's file must place its own.

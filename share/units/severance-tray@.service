@@ -1,0 +1,20 @@
+# Managed by severance (docs/enclave-user.md). A USER unit: the enclave's
+# TRAY BUS (libexec/severance-tray-bus), in the enclave account's lingering
+# user manager: a filtered proxy of its session bus that lets the owner's
+# tray host its StatusNotifier icons and reach nothing else. The instance
+# name is the enclave. Rendered by `severance enclave provision` into
+# /etc/systemd/user, root-owned, enabled globally; the ExecCondition lets
+# only the account whose SEVERANCE_ENCLAVE (its environment.d) names this
+# instance run it.
+[Unit]
+Description=severance: the tray bus of enclave %i
+
+[Service]
+ExecCondition=/bin/sh -c 'test "$SEVERANCE_ENCLAVE" = "%i"'
+ExecStart=@LIBEXEC@/severance-tray-bus %i
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=default.target

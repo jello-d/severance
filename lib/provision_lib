@@ -127,7 +127,8 @@ _PV_DISPLAY=severance-display@.service
 # Every USER unit an enclave gets, as <template>:<whose session runs it>.
 _PV_USER_UNITS="severance-display@.service:owner
 severance-notify-owner@.service:owner
-severance-notify-enclave@.service:enclave"
+severance-notify-enclave@.service:enclave
+severance-tray@.service:enclave"
 # Device groups every enclave account joins: the GPU render node and the
 # cameras. Decided 2026-11-01: by group, always. Cameras carry the uaccess
 # tag, which ACLs them only to the owner of the seat's active session, and
@@ -251,9 +252,16 @@ _pv_linger() {
 _pv_render_parent() {
   printf 'd %s 0755 root root -\n' "$SEV_SHARE_ROOT"
 }
+# The share dir holds what the OWNER serves to the enclave; its enclave/
+# subdirectory holds what the ENCLAVE serves to the owner (the tray bus).
+# That one is the account's, group the owner's primary group, setgid, so a
+# socket made in it lands in the owner's group and nobody else's.
 _pv_render_share() {
   printf 'd %s 0710 %s %s -\n' "$EN_SHARE" "$EN_OWNER" "$EN_ACCOUNT"
+  printf 'd %s/enclave 2710 %s %s -\n' "$EN_SHARE" "$EN_ACCOUNT" \
+    "$(_pv_owner_gid)"
 }
+_pv_owner_gid() { getent passwd "$EN_OWNER" 2>/dev/null | cut -d: -f4; }
 _pv_tmpfile() {   # <path> <render function>
   _pv_t=$(mktemp) || return 1
   "$2" > "$_pv_t"
@@ -321,13 +329,6 @@ _pv_account_file() {   # <dir under home> <file> <render function>
 # windows only), because the usual pickers are overlays an enclave may not
 # open. Everything else goes to the gtk portal. Both name THIS install, so
 # they are rendered, not shipped.
-_pv_render_portals() {
-  echo "# Written by severance for enclave $EN_NAME; re-written on every"
-  echo "# provision."
-  echo "[preferred]"
-  echo "default=gtk"
-  echo "org.freedesktop.impl.portal.ScreenCast=wlr"
-}
 _pv_render_xdpw() {
   echo "# Written by severance for enclave $EN_NAME; re-written on every"
   echo "# provision."
@@ -335,23 +336,37 @@ _pv_render_xdpw() {
   echo "chooser_type=dmenu"
   echo "chooser_cmd=${SEVERANCE_SELF%/bin/*}/libexec/severance-share-chooser"
 }
+# Screen sharing: severance writes only the wlroots portal's CHOOSER config,
+# which is its own mechanism. WHICH backend serves which portal interface is
+# a desktop choice and the integrator's (it places the enclave's
+# portals.conf); `enclave check` asserts only that ScreenCast reaches wlr.
+# A backend reads its config at start, so a change restarts a running one.
 _pv_portal() {
-  _pv_account_file .config/xdg-desktop-portal portals.conf \
-    _pv_render_portals || return 1
-  _pv_account_file .config/xdg-desktop-portal-wlr config _pv_render_xdpw
+  _pv_account_file .config/xdg-desktop-portal-wlr config _pv_render_xdpw ||
+    return 1
+  [ "$_pv_wrote" = 1 ] || return 0
+  _pv_user_systemctl try-restart xdg-desktop-portal-wlr.service || return 1
 }
 
 # A RUNNING manager keeps the environment it started with until it reloads,
 # so a changed file must be followed by a reload or it waits for a reboot.
 # Services already running keep the old values; new ones get the new.
 _pv_reload_env() {
+  _pv_user_systemctl daemon-reload || return 1
+  [ "$_pv_usc" = 1 ] || return 0
+  echo "severance: $EN_ACCOUNT's session reloaded its environment"
+}
+# systemctl --user in the account's RUNNING manager; nothing when there is
+# none (it reads the new state when it starts). Sets _pv_usc to 1 when ran.
+_pv_user_systemctl() {   # <systemctl args...>
+  _pv_usc=0
   _pv_ru=$(getent passwd "$EN_ACCOUNT" 2>/dev/null | cut -d: -f3)
   [ -n "$_pv_ru" ] || return 0
   systemctl is-active --quiet "user@$_pv_ru.service" 2>/dev/null ||
     return 0
   _pv_do runuser -u "$EN_ACCOUNT" -- env "XDG_RUNTIME_DIR=/run/user/$_pv_ru" \
-    systemctl --user daemon-reload || return 1
-  echo "severance: $EN_ACCOUNT's session reloaded its environment"
+    systemctl --user "$@" || return 1
+  _pv_usc=1
 }
 
 # --- check: is each declared enclave what provision makes? --------------------
@@ -414,6 +429,30 @@ _pv_check_ids() {
 # is 0700, so this guards against quiet breakage rather than an escape.) The
 # names come from the render itself, so the list cannot drift from what
 # severance writes. Read AS THE ACCOUNT: it is the account's directory.
+# Screen sharing needs ScreenCast routed to the wlroots portal, in EVERY
+# portals config the enclave has: the frontend picks <desktop>-portals.conf
+# or portals.conf by XDG_CURRENT_DESKTOP, which severance does not decide,
+# so each one that exists must agree. The files are the integrator's.
+_pv_check_portal_route() {
+  _pv_rt=$(runuser -u "$EN_ACCOUNT" -- sh -c '
+    cd "$1" 2>/dev/null || exit 0
+    k="^org.freedesktop.impl.portal.ScreenCast[[:space:]]*=[[:space:]]*wlr"
+    for f in *portals.conf; do
+      [ -f "$f" ] || continue
+      if grep -q "$k" "$f"; then echo "ok:$f"; else echo "bad:$f"; fi
+    done
+    exit 0' _ "$EN_HOME/.config/xdg-desktop-portal" 2>/dev/null) ||
+    _pv_rt="bad:(unreadable)"
+  case $_pv_rt in
+    '') _bad "no portals config in the enclave: screen sharing may" \
+          "reach any backend (the integrator places it)" ;;
+    *bad:*) _bad "a portals config does not route ScreenCast to wlr:" \
+          $(printf '%s\n' "$_pv_rt" | sed -n 's/^bad://p') ;;
+    *) _ok "screen sharing routed to the wlroots portal:" \
+          $(printf '%s\n' "$_pv_rt" | sed -n 's/^ok://p') ;;
+  esac
+}
+
 _pv_check_env_others() {
   _pv_names=$(_pv_render_env |
     sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p')
@@ -445,6 +484,12 @@ _pv_check_share() {
   if [ "$_pv_ss" = "$EN_OWNER $EN_ACCOUNT 710" ]; then
     _ok "$EN_SHARE: $EN_OWNER:$EN_ACCOUNT 0710"
   else _bad "$EN_SHARE: $_pv_ss, want '$EN_OWNER $EN_ACCOUNT 710'"; fi
+  _pv_ss=$(stat -c '%U %g %a' "$EN_SHARE/enclave" 2>/dev/null ||
+    echo missing)
+  _pv_sw="$EN_ACCOUNT $(_pv_owner_gid) 2710"
+  if [ "$_pv_ss" = "$_pv_sw" ]; then
+    _ok "$EN_SHARE/enclave: $EN_ACCOUNT, owner's group, 2710"
+  else _bad "$EN_SHARE/enclave: $_pv_ss, want '$_pv_sw'"; fi
   if [ "$(id -u)" != 0 ]; then
     _ok "environment.d unverifiable here (inside a 0700 home; run as root)"
   elif _pv_render_env | cmp -s - \
@@ -453,12 +498,11 @@ _pv_check_share() {
   else _bad "environment.d missing or stale (re-run provision)"; fi
   [ "$(id -u)" = 0 ] || return 0
   _pv_check_env_others
-  if _pv_render_portals | cmp -s - \
-       "$EN_HOME/.config/xdg-desktop-portal/portals.conf" &&
-     _pv_render_xdpw | cmp -s - \
+  if _pv_render_xdpw | cmp -s - \
        "$EN_HOME/.config/xdg-desktop-portal-wlr/config"; then
-    _ok "screen-share portal config current"
-  else _bad "screen-share portal config missing or stale"; fi
+    _ok "screen-share chooser config current"
+  else _bad "screen-share chooser config missing or stale"; fi
+  _pv_check_portal_route
 }
 
 # --- forget: retire an enclave, verified --------------------------------------
@@ -584,7 +628,13 @@ _pv_account_gone() {
 _pv_unshare() {
   _pv_do rm -f "$TMPFILES_DIR/severance-$EN_NAME.conf"
   [ -d "$EN_SHARE" ] || return 0
-  _pv_do rm -f "$EN_SHARE/wayland-0" "$EN_SHARE/pulse" "$EN_SHARE/relay"
+  _pv_do rm -f "$EN_SHARE/wayland-0" "$EN_SHARE/pulse" "$EN_SHARE/relay" \
+    "$EN_SHARE/pipewire-0" "$EN_SHARE/pipewire-0.lock" \
+    "$EN_SHARE/enclave/tray-bus"
+  if [ -d "$EN_SHARE/enclave" ]; then
+    _pv_do rmdir "$EN_SHARE/enclave" ||
+      echo "  $EN_SHARE/enclave not empty; left" >&2
+  fi
   _pv_do rmdir "$EN_SHARE" || echo "  $EN_SHARE not empty; left" >&2
 }
 

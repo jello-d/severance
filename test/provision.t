@@ -174,11 +174,16 @@ want "no 'nosuch' group on this box" "a missing device group was not named"
 want "$T/tmpfiles/severance-newe.conf" "the share dir is not declared"
 want "dry-run: runuser -u alice-newe" \
   "environment.d is not written AS THE ACCOUNT"
-# The screen-share portal's config, also written as the account.
-want "/home/alice-newe/.config/xdg-desktop-portal portals.conf" \
-  "the portal routing is not written"
+# The screen-share CHOOSER config, also written as the account. The portal
+# ROUTING (portals.conf) is the integrator's and severance never writes it.
 want "/home/alice-newe/.config/xdg-desktop-portal-wlr config" \
   "the wlroots portal's chooser config is not written"
+printf '%s\n' "$out" | grep -q 'xdg-desktop-portal portals.conf' &&
+  fail "provision wrote portals.conf, which is the integrator's"
+# The tray bus: the enclave's end, enabled like the relay.
+want "$T/userunits/severance-tray@.service" "the tray unit is not installed"
+want "dry-run: systemctl --global enable severance-tray@newe.service" \
+  "the tray unit is not enabled"
 # ORDER: linger starts the user manager at once and a manager reads
 # environment.d when it starts, so the file must exist before linger is on.
 # The other order was measured live: a session with no enclave environment.
@@ -257,9 +262,12 @@ render() {   # <enclave> <function>
     _pv_test_render() { _pv_render_unit "$UNIT_ARG"; }
     en_load "$1" && "$2"' _ "$1" "$2"
 }
+# Two lines: the owner-served dir, and the enclave-served one inside it
+# (setgid, group = the owner's primary gid, 1000 in the stub).
 [ "$(render acme _pv_render_share)" = \
-  "d /run/severance/acme 0710 alice alice-acme -" ] ||
-  fail "share dir line wrong: $(render acme _pv_render_share)"
+  "d /run/severance/acme 0710 alice alice-acme -
+d /run/severance/acme/enclave 2710 alice-acme 1000 -" ] ||
+  fail "share dir lines wrong: $(render acme _pv_render_share)"
 [ "$(render acme _pv_render_parent)" = "d /run/severance 0755 root root -" ] ||
   fail "share parent line wrong"
 du=$(render acme _pv_render_display)
@@ -286,9 +294,6 @@ printf '%s\n' "$xd" | grep -qx "chooser_type=dmenu" ||
 printf '%s\n' "$xd" | grep -qx \
   "chooser_cmd=$HERE/libexec/severance-share-chooser" ||
   fail "the portal does not run THIS install's chooser: $xd"
-render acme _pv_render_portals |
-  grep -qx "org.freedesktop.impl.portal.ScreenCast=wlr" ||
-  fail "screen sharing is not routed to the wlroots portal"
 env_out=$(render acme _pv_render_env)
 for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
          PULSE_SERVER=unix:/run/severance/acme/pulse \
@@ -320,7 +325,32 @@ printf 'MOZ_ENABLE_WAYLAND=1\nWAYLAND_DISPLAY=wayland-1\n' \
 case $(envck) in *"[FAIL]"*"60-late.conf:WAYLAND_DISPLAY"*) ;;
   *) fail "an override of WAYLAND_DISPLAY was not named: $(envck)" ;;
 esac
-rm -f "$EH/60-late.conf" "$T/bin/runuser"
+rm -f "$EH/60-late.conf"
+
+# The portal ROUTING is the integrator's file; check asserts only that every
+# portals config the enclave has sends ScreenCast to wlr, since which one
+# the frontend reads depends on XDG_CURRENT_DESKTOP.
+PD=$T/homes/alice-acme/.config/xdg-desktop-portal
+mkdir -p "$PD"
+routeck() {
+  SEVERANCE_HOME_ROOT=$T/homes; export SEVERANCE_HOME_ROOT
+  render acme _pv_check_portal_route
+  unset SEVERANCE_HOME_ROOT
+}
+case $(routeck) in *"[FAIL]"*"no portals config"*) ;;
+  *) fail "no portals config was not reported: $(routeck)" ;; esac
+printf '%s\n' '[preferred]' default=gtk \
+  org.freedesktop.impl.portal.ScreenCast=wlr > "$PD/portals.conf"
+printf '[preferred]\norg.freedesktop.impl.portal.ScreenCast = wlr\n' \
+  > "$PD/wayfire-portals.conf"
+case $(routeck) in *"[OK]"*"portals.conf"*) ;;
+  *) fail "two agreeing configs were refused: $(routeck)" ;; esac
+printf '[preferred]\norg.freedesktop.impl.portal.ScreenCast=hyprland\n' \
+  > "$PD/wayfire-portals.conf"
+case $(routeck) in *"[FAIL]"*"wayfire-portals.conf"*) ;;
+  *) fail "a config routing ScreenCast elsewhere was not named: $(routeck)" ;;
+esac
+rm -f "$T/bin/runuser"
 rm -f "$ED/off"
 
 # The TEMPLATE itself: who it runs as, and where its socket lives. %i, the
@@ -349,14 +379,27 @@ fgt() {
     PATH="$T/bin:$PATH" ${DRY+SEVERANCE_DRYRUN=1} ${GONE+GONE=$GONE} \
     sh "$SEV" forget "$@"
 }
+# A share dir with its sockets present, so the unshare step runs.
+mkdir -p "$T/run/acme/enclave"
 DRY=1; out=$(fgt acme) || fail "forget (dry) failed: $out"
+# Every socket that lives there goes, the PipeWire one (the integrator's,
+# in severance's dir) and the enclave-served tray bus included, then both
+# directories: a leftover makes the rmdir fail and the dir outlive forget.
+for f in wayland-0 pulse relay pipewire-0 pipewire-0.lock enclave/tray-bus; do
+  printf '%s\n' "$out" | grep -q "^dry-run: rm -f .*$T/run/acme/$f" ||
+    fail "forget does not remove $f from the share dir"
+done
+want "dry-run: rmdir $T/run/acme/enclave" "forget leaves the enclave/ dir"
+want "dry-run: rmdir $T/run/acme" "forget leaves the share dir"
+rmdir "$T/run/acme/enclave" "$T/run/acme"
 want "dry-run: loginctl disable-linger alice-acme" "linger not turned off"
 want "dry-run: mv $HR/alice-acme $HR/alice-acme.retired-" \
   "the home is not RETIRED (kept) by default"
 want "dry-run: chown -R root:root $HR/alice-acme.retired-" \
   "the retired home is not taken away from the freed uid"
 want "dry-run: userdel alice-acme" "the account is not removed"
-for u in severance-display severance-notify-owner severance-notify-enclave
+for u in severance-display severance-notify-owner severance-notify-enclave \
+  severance-tray
 do
   want "dry-run: systemctl --global disable $u@acme.service" \
     "forget leaves $u enabled"
