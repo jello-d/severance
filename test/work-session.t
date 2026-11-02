@@ -44,6 +44,22 @@ want 'QUOTED=[say "hi" there]'
 want "$T/h"
 [ -e "$T/evaluated" ] && fail "a value was EXECUTED, not exported as data"
 
+# The CALLER's session pointers never reach the enclave: sudo keeps some
+# (DISPLAY among them), and an app handed the owner's X display tries it and
+# dies. Foreign runtime dir and bus are dropped too, never trusted.
+out=$(env -i HOME="$T/h" PATH=/usr/bin:/bin DISPLAY=:0 XAUTHORITY=/x/auth \
+  WAYFIRE_SOCKET=/run/user/1/wf.sock SSH_AUTH_SOCK=/run/user/1/agent \
+  XDG_RUNTIME_DIR=/run/user/999999 \
+  DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/999999/bus sh "$WS" \
+  sh -c 'printf "[%s]" "${DISPLAY-}" "${XAUTHORITY-}" "${WAYFIRE_SOCKET-}" \
+    "${SSH_AUTH_SOCK-}"; echo; echo "${XDG_RUNTIME_DIR-}"
+    echo "${DBUS_SESSION_BUS_ADDRESS-}"' 2>/dev/null) ||
+  fail "work-session failed with a caller's session set: $out"
+[ "$(printf '%s\n' "$out" | sed -n 1p)" = "[][][][]" ] ||
+  fail "a caller's session pointer reached the enclave: $out"
+case $out in *999999*)
+  fail "a foreign runtime dir or bus reached the enclave: $out" ;; esac
+
 # A NON-login sudo (how `work run` arrives) opens no session: the runtime
 # dir is supplied from the account's own /run/user/<uid> when it exists.
 _rt=/run/user/$(id -u)

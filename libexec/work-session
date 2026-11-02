@@ -20,6 +20,23 @@
 # that is not root-owned.
 set -eu
 
+# THE CALLER'S SESSION STOPS HERE. sudo keeps a few of the invoking user's
+# variables (sudo-rs's env_keep includes DISPLAY), so the enclave arrived
+# holding pointers into the OWNER's session. Measured: an app inside was
+# handed the owner's X display, chose X11 because of it, was refused (by
+# design: Xwayland admits no other uid) and died. The enclave has its own
+# display, bus and runtime dir and NO X server, so every such pointer only
+# sends an app to a session it cannot use. Dropped BEFORE environment.d is
+# read, so the enclave's own values are the only ones left.
+unset DISPLAY XAUTHORITY XAUTHORIZATION WAYFIRE_SOCKET SWAYSOCK \
+  WAYLAND_SOCKET SSH_AUTH_SOCK
+_rt=/run/user/$(id -u)
+case ${XDG_RUNTIME_DIR:-} in "$_rt"|'') ;; *) unset XDG_RUNTIME_DIR ;; esac
+case ${DBUS_SESSION_BUS_ADDRESS:-} in
+  "unix:path=$_rt/bus"|'') ;;
+  *) unset DBUS_SESSION_BUS_ADDRESS ;;
+esac
+
 _gen=
 _rel=user-environment-generators/30-systemd-environment-d-generator
 for _g in /usr/lib/systemd/$_rel /lib/systemd/$_rel; do
@@ -51,7 +68,6 @@ set +f
 # `work run` arrives through a NON-login sudo (so its argv is not re-parsed
 # by a shell), which opens no session: supply the runtime dir and the session
 # bus from the account's own lingering session when they are missing.
-_rt=/run/user/$(id -u)
 if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "$_rt" ] && [ -O "$_rt" ]; then
   export XDG_RUNTIME_DIR="$_rt"
 fi
