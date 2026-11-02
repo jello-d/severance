@@ -71,9 +71,9 @@ sev_show() {
 # process that self-evidently exists, so it cannot hit the error path.
 #
 # A STABLE contract: one word on stdout, nothing on stderr on the normal path.
-# mux consumes it directly as its context-command (a non-zero exit reads as
-# `global` there, which is correct: mux must not name a context we could not
-# determine).
+# mux's context-command reaches it through an adapter (mux passes a PID), and
+# a non-zero exit there is a FAILURE that makes mux refuse to act rather than
+# guess, so "in no enclave" must stay exit 0 with nothing printed.
 sev_current() {
   # The PID form moved to `enclave-of pid` (breaking-changes 17): a lookup
   # about ANOTHER process is a different question from "where am I", with a
