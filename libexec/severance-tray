@@ -1,0 +1,466 @@
+#!/usr/bin/python3 -I
+"""severance-tray <enclave>: the enclave's tray relay.
+
+An enclave app shows its tray icon (a StatusNotifierItem) on the ENCLAVE's
+session bus, which the owner cannot reach, and it may serve that item from
+a connection that owns no name at all (a Chromium app registers by its
+unique name), so no name filter can carry it. This relays instead, AS the
+enclave account, in its user manager (share/units/severance-tray@.service):
+
+  - It runs a PRIVATE tray bus (its own dbus-daemon) at
+    <share>/<enclave>/enclave/tray-bus, which only this account and the
+    owner may connect to. Nothing of the enclave's own bus is on it.
+  - On the enclave's bus it IS the StatusNotifierWatcher, so the enclave's
+    apps register their items with it.
+  - Each registered item gets its own connection to the tray bus, under a
+    well-known name (org.kde.StatusNotifierItem-<pid>-<n>), registered with
+    whatever watcher the owner's tray runs there. Calls arriving for it are
+    forwarded to the connection that REGISTERED the item, but ONLY the
+    tray and menu methods below and Properties reads of those two
+    interfaces; anything else is refused. The item's signals come back.
+
+So the owner's tray sees icons and menus and can click them, and reaches
+nothing else of the enclave (not its keyring, not its portals). The
+contract is the socket path (docs/breaking-changes.md 18); a missing
+socket means the enclave's session is not running: an empty tray.
+GLib's D-Bus bindings (python3-gi) and dbus-daemon.
+"""
+
+import os
+import pwd
+import re
+import signal
+import subprocess
+import sys
+import time
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+SNI = "org.kde.StatusNotifierItem"
+MENU = "com.canonical.dbusmenu"
+WATCHER = "org.kde.StatusNotifierWatcher"
+WATCHER_PATH = "/StatusNotifierWatcher"
+PROPS = "org.freedesktop.DBus.Properties"
+INTRO = "org.freedesktop.DBus.Introspectable"
+PEER = "org.freedesktop.DBus.Peer"
+ITEM_METHODS = {"Activate", "SecondaryActivate", "ContextMenu", "Scroll",
+                "ProvideXdgActivationToken"}
+MENU_METHODS = {"AboutToShow", "AboutToShowGroup", "GetLayout",
+                "GetGroupProperties", "GetProperty", "Event", "EventGroup"}
+ITEM_SIGNALS = {"NewTitle", "NewIcon", "NewAttentionIcon", "NewOverlayIcon",
+                "NewToolTip", "NewStatus", "NewIconThemePath", "NewMenu"}
+MENU_SIGNALS = {"ItemsPropertiesUpdated", "LayoutUpdated",
+                "ItemActivationRequested"}
+MAX_ITEMS = 32
+CALL_TIMEOUT_MS = 25000
+DENIED = "org.freedesktop.DBus.Error.AccessDenied"
+WATCHER_XML = """
+<node>
+  <interface name="org.kde.StatusNotifierWatcher">
+    <method name="RegisterStatusNotifierItem">
+      <arg type="s" direction="in"/>
+    </method>
+    <method name="RegisterStatusNotifierHost">
+      <arg type="s" direction="in"/>
+    </method>
+    <property name="RegisteredStatusNotifierItems" type="as" access="read"/>
+    <property name="IsStatusNotifierHostRegistered" type="b" access="read"/>
+    <property name="ProtocolVersion" type="i" access="read"/>
+    <signal name="StatusNotifierItemRegistered"><arg type="s"/></signal>
+    <signal name="StatusNotifierItemUnregistered"><arg type="s"/></signal>
+    <signal name="StatusNotifierHostRegistered"/>
+  </interface>
+</node>
+"""
+BUS_CONF = """<!DOCTYPE busconfig PUBLIC
+ "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <listen>unix:path={sock}</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow user="{account}"/>
+    <allow user="{owner}"/>
+    <allow send_destination="*" eavesdrop="false"/>
+    <allow eavesdrop="false"/>
+    <allow own="*"/>
+  </policy>
+  <limit name="max_connections_per_user">{maxconn}</limit>
+</busconfig>
+"""
+
+
+def say(msg):
+    sys.stderr.write("severance-tray: %s\n" % msg)
+    sys.stderr.flush()
+
+
+def die(msg, code=1):
+    say(msg)
+    sys.exit(code)
+
+
+def copy_body(src, dst):
+    """A message's arguments onto another. An EMPTY body is None, which
+    set_body refuses, and most replies here are empty (Activate)."""
+    body = src.get_body()
+    if body is not None:
+        dst.set_body(body)
+    return dst
+
+
+def bus_at(address):
+    return Gio.DBusConnection.new_for_address_sync(
+        address, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT |
+        Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+
+
+# --- one relayed item ---------------------------------------------------------
+class Item:
+    """An enclave app's tray item, re-published on the tray bus."""
+
+    def __init__(self, relay, dest, path, name):
+        self.relay, self.dest, self.path, self.name = relay, dest, path, name
+        self.menu = None
+        self.subs = []
+        self.tray = bus_at(relay.tray_address)
+        self.tray.add_filter(self._filter)
+        self.tray.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
+                            "org.freedesktop.DBus", "RequestName",
+                            GLib.Variant("(su)", (name, 4)), None,
+                            Gio.DBusCallFlags.NONE, -1, None)
+        self._follow(self.path)
+        # The menu's path is a property of the item, read ASYNCHRONOUSLY: the
+        # app may still be waiting on its own registration call, and a
+        # synchronous read here would wait on it in turn.
+        relay.enclave.call(dest, path, PROPS, "Get",
+                           GLib.Variant("(ss)", (SNI, "Menu")),
+                           GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE,
+                           5000, None, lambda c, r: self._menu_known(c, r))
+        self.register()
+
+    def _follow(self, path):
+        for iface in ((SNI, PROPS) if path == self.path else (MENU, PROPS)):
+            self.subs.append(self.relay.enclave.signal_subscribe(
+                self.dest, iface, None, path, None,
+                Gio.DBusSignalFlags.NONE, self._signal))
+
+    def _menu_known(self, conn, res):
+        try:
+            menu = conn.call_finish(res).unpack()[0]
+        except GLib.Error:
+            return                 # an item with no menu: menu calls refused
+        if menu and menu != "/" and menu != self.path and self.subs:
+            self.menu = menu
+            self._follow(menu)
+
+    def register(self):
+        """Tell the owner's tray about it, if a watcher runs there."""
+        self.tray.call(WATCHER, WATCHER_PATH, WATCHER,
+                       "RegisterStatusNotifierItem",
+                       GLib.Variant("(s)", (self.name,)), None,
+                       Gio.DBusCallFlags.NO_AUTO_START, 5000, None,
+                       lambda c, r: self._registered(c, r))
+
+    def _registered(self, conn, res):
+        try:
+            conn.call_finish(res)
+        except GLib.Error:
+            pass               # no watcher yet: re-registered when one comes
+
+    def close(self):
+        for s in self.subs:
+            self.relay.enclave.signal_unsubscribe(s)
+        self.subs = []
+        self.tray.close_sync(None)
+
+    def allowed(self, msg):
+        path, iface, member = msg.get_path(), msg.get_interface(), \
+            msg.get_member()
+        if path == self.path and iface == SNI:
+            return member in ITEM_METHODS
+        if self.menu and path == self.menu and iface == MENU:
+            return member in MENU_METHODS
+        if path in (self.path, self.menu) and iface == PROPS:
+            body = msg.get_body()
+            return (member in ("Get", "GetAll") and body is not None and
+                    body.n_children() > 0 and
+                    body.get_child_value(0).get_string() in (SNI, MENU))
+        return path in (self.path, self.menu) and iface == INTRO and \
+            member == "Introspect"
+
+    # GDBus runs filters on its worker thread, where an async reply could
+    # never be delivered, so the message is handed to the main loop.
+    def _filter(self, conn, msg, incoming):
+        if (not incoming or msg.get_message_type() !=
+                Gio.DBusMessageType.METHOD_CALL):
+            return msg
+        GLib.idle_add(self._forward, msg)
+        return None
+
+    def _forward(self, msg):
+        try:
+            self._dispatch(msg)
+        except Exception as e:  # never leave a caller waiting in silence
+            say("failed to relay %s.%s: %s" % (msg.get_interface(),
+                                               msg.get_member(), e))
+            self._reply(msg, Gio.DBusMessage.new_method_error_literal(
+                msg, "org.freedesktop.DBus.Error.Failed", str(e)))
+        return False
+
+    def _dispatch(self, msg):
+        if msg.get_interface() == PEER:
+            self._reply(msg, Gio.DBusMessage.new_method_reply(msg))
+        elif not self.allowed(msg):
+            self._reply(msg, Gio.DBusMessage.new_method_error_literal(
+                msg, DENIED, "not a tray method"))
+        else:
+            out = copy_body(msg, Gio.DBusMessage.new_method_call(
+                self.dest, msg.get_path(), msg.get_interface(),
+                msg.get_member()))
+            self.relay.enclave.send_message_with_reply(
+                out, Gio.DBusSendMessageFlags.NONE, CALL_TIMEOUT_MS, None,
+                lambda c, r: self._answered(c, r, msg))
+
+    def _answered(self, conn, res, orig):
+        try:
+            self._answer(conn, res, orig)
+        except Exception as e:  # as in _forward: answer, and say why
+            say("failed to return a reply: %s" % e)
+            self._reply(orig, Gio.DBusMessage.new_method_error_literal(
+                orig, "org.freedesktop.DBus.Error.Failed", str(e)))
+
+    def _answer(self, conn, res, orig):
+        try:
+            got = conn.send_message_with_reply_finish(res)
+        except GLib.Error as e:
+            self._reply(orig, Gio.DBusMessage.new_method_error_literal(
+                orig, "org.freedesktop.DBus.Error.Failed", e.message))
+            return
+        if got.get_message_type() == Gio.DBusMessageType.ERROR:
+            body = got.get_body()
+            text = (body.get_child_value(0).get_string()
+                    if body is not None and body.n_children() else "")
+            reply = Gio.DBusMessage.new_method_error_literal(
+                orig, got.get_error_name() or DENIED, text)
+        else:
+            reply = copy_body(got, Gio.DBusMessage.new_method_reply(orig))
+        self._reply(orig, reply)
+
+    def _reply(self, orig, reply):
+        if not self.tray.is_closed():
+            self.tray.send_message(reply, Gio.DBusSendMessageFlags.NONE)
+
+    def _signal(self, conn, sender, path, iface, member, params):
+        ok = ((iface == SNI and member in ITEM_SIGNALS) or
+              (iface == MENU and member in MENU_SIGNALS) or
+              (iface == PROPS and member == "PropertiesChanged" and
+               params.get_child_value(0).get_string() in (SNI, MENU)))
+        if ok and not self.tray.is_closed():
+            self.tray.emit_signal(None, path, iface, member, params)
+
+
+# --- the relay: watcher on the enclave's bus, items on the tray bus -------
+class Relay:
+    def __init__(self, enclave_address, tray_address):
+        self.tray_address = tray_address
+        self.enclave = (bus_at(enclave_address) if enclave_address else
+                        Gio.bus_get_sync(Gio.BusType.SESSION, None))
+        self.ctl = bus_at(tray_address)
+        self.items = {}            # (dest, path) -> Item, None while set up
+        self.watched = {}          # connection -> its closing subscription
+        self.serial = 0
+        self.host = False
+        self.watch = None
+        node = Gio.DBusNodeInfo.new_for_xml(WATCHER_XML)
+        self.enclave.register_object(WATCHER_PATH, node.interfaces[0],
+                                     self._method, self._property, None)
+        Gio.bus_own_name_on_connection(
+            self.enclave, WATCHER, Gio.BusNameOwnerFlags.NONE, None,
+            self._lost)
+        Gio.bus_watch_name_on_connection(
+            self.ctl, WATCHER, Gio.BusNameWatcherFlags.NONE,
+            self._host_up, self._host_down)
+
+    def _lost(self, conn, name):
+        die("could not own %s on the enclave's bus (another tray runs "
+            "inside the enclave)" % WATCHER)
+
+    def _host_up(self, conn, name, owner):
+        self.host = True
+        for item in self.items.values():
+            if item is not None:
+                item.register()
+        self.enclave.emit_signal(None, WATCHER_PATH, WATCHER,
+                                 "StatusNotifierHostRegistered", None)
+
+    def _host_down(self, conn, name):
+        self.host = False
+
+    def _property(self, conn, sender, path, iface, prop):
+        if prop == "RegisteredStatusNotifierItems":
+            return GLib.Variant("as", ["%s%s" % k for k in self.items])
+        if prop == "IsStatusNotifierHostRegistered":
+            return GLib.Variant("b", self.host)
+        return GLib.Variant("i", 0)
+
+    def _method(self, conn, sender, path, iface, method, params, inv):
+        if method == "RegisterStatusNotifierHost":
+            inv.return_value(None)
+            return
+        try:
+            dest, ipath = self._target(sender, params.unpack()[0])
+        except (GLib.Error, ValueError) as e:
+            inv.return_dbus_error(DENIED, "cannot register: %s" % e)
+            return
+        if (dest, ipath) not in self.items:
+            if len(self.items) >= MAX_ITEMS:
+                inv.return_dbus_error(DENIED, "too many tray items")
+                return
+            self.items[(dest, ipath)] = None       # claimed, set up below
+            self._watch(dest)
+            GLib.idle_add(self._add, dest, ipath)
+        # Answered BEFORE the item is set up, so an app waiting on this call
+        # is free to answer the questions setting it up asks.
+        inv.return_value(None)
+
+    def _target(self, sender, service):
+        """The connection that serves the item, and its path."""
+        if service.startswith("/"):
+            return sender, service
+        name, _, rest = service.partition("/")
+        path = "/" + rest if rest else "/StatusNotifierItem"
+        if not Gio.dbus_is_name(name):
+            raise ValueError("not a bus name: %s" % name)
+        if not name.startswith(":"):
+            name = self.enclave.call_sync(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                "org.freedesktop.DBus", "GetNameOwner",
+                GLib.Variant("(s)", (name,)), GLib.VariantType("(s)"),
+                Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+        return name, path
+
+    def _watch(self, dest):
+        """Follow the closing of the connection that serves an item, from
+        the moment it is claimed, so one that goes before its item is set
+        up is not missed."""
+        if dest in self.watched:
+            return
+        self.watched[dest] = self.enclave.signal_subscribe(
+            "org.freedesktop.DBus", "org.freedesktop.DBus",
+            "NameOwnerChanged", "/org/freedesktop/DBus", dest,
+            Gio.DBusSignalFlags.NONE, self._owner_changed)
+
+    def _alive(self, dest):
+        try:
+            return self.enclave.call_sync(
+                "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                "org.freedesktop.DBus", "NameHasOwner",
+                GLib.Variant("(s)", (dest,)), GLib.VariantType("(b)"),
+                Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+        except GLib.Error:
+            return False
+
+    def _add(self, dest, path):
+        if (dest, path) not in self.items:
+            return False           # its connection closed in the meantime
+        if not self._alive(dest):
+            del self.items[(dest, path)]
+            return False
+        self.serial += 1
+        name = "%s-%d-%d" % (SNI, os.getpid(), self.serial)
+        self.items[(dest, path)] = Item(self, dest, path, name)
+        key = "%s%s" % (dest, path)
+        self.enclave.emit_signal(None, WATCHER_PATH, WATCHER,
+                                 "StatusNotifierItemRegistered",
+                                 GLib.Variant("(s)", (key,)))
+        say("relaying %s as %s" % (key, name))
+        return False
+
+    def _owner_changed(self, conn, sender, path, iface, member, params):
+        gone, _old, new = params.unpack()
+        if new:
+            return
+        sub = self.watched.pop(gone, None)
+        if sub is not None:
+            self.enclave.signal_unsubscribe(sub)
+        for key in [k for k in self.items if k[0] == gone]:
+            item = self.items.pop(key)
+            if item is not None:
+                item.close()
+            self.enclave.emit_signal(None, WATCHER_PATH, WATCHER,
+                                     "StatusNotifierItemUnregistered",
+                                     GLib.Variant("(s)", ("%s%s" % key,)))
+            say("dropped %s%s (its connection closed)" % key)
+
+
+# --- the private tray bus -----------------------------------------------------
+def start_bus(sock, account, owner):
+    """A dbus-daemon for the tray bus; its config lives in our runtime."""
+    run = os.environ.get("XDG_RUNTIME_DIR") or os.path.dirname(sock)
+    conf = os.path.join(run, "severance-tray-%d.conf" % os.getpid())
+    with open(conf, "w") as f:
+        f.write(BUS_CONF.format(sock=sock, account=account, owner=owner,
+                                maxconn=MAX_ITEMS + 8))
+    try:
+        os.unlink(sock)
+    except FileNotFoundError:
+        pass
+    old = os.umask(0o007)
+    try:
+        proc = subprocess.Popen(["dbus-daemon", "--nofork", "--nopidfile",
+                                 "--config-file=" + conf])
+    finally:
+        os.umask(old)
+    for _ in range(100):
+        if os.path.exists(sock) or proc.poll() is not None:
+            break
+        time.sleep(0.05)
+    os.unlink(conf)
+    if not os.path.exists(sock):
+        proc.kill()
+        die("the tray bus did not start at %s" % sock)
+    return proc
+
+
+def main(argv):
+    if len(argv) != 2 or not re.fullmatch(
+            r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", argv[1]):
+        die("usage: severance-tray <enclave>", 2)
+    share = os.path.join(os.environ.get("SEVERANCE_SHARE_ROOT",
+                                        "/run/severance"), argv[1])
+    sdir = os.path.join(share, "enclave")
+    if not os.path.isdir(sdir):
+        die("%s missing (provision makes it)" % sdir)
+    owner = pwd.getpwuid(os.stat(share).st_uid).pw_name
+    account = pwd.getpwuid(os.getuid()).pw_name
+    sock = os.path.join(sdir, "tray-bus")
+    proc = start_bus(sock, account, owner)
+    loop = GLib.MainLoop()
+
+    def stop():
+        loop.quit()
+        return False
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig, stop)
+    try:
+        Relay(os.environ.get("SEVERANCE_TRAY_UPSTREAM"), "unix:path=" + sock)
+        print("ready: tray relay for %s on %s" % (argv[1], sock), flush=True)
+        loop.run()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        try:
+            os.unlink(sock)
+        except FileNotFoundError:
+            pass
+
+
+if __name__ == "__main__":
+    main(sys.argv)

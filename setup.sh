@@ -175,7 +175,7 @@ _payload_stage() {
             share/units/severance-notify-enclave@.service \
             share/wireplumber/scripts/severance-access.lua \
             libexec/severance-pipewire-conf \
-            libexec/severance-tray-bus \
+            libexec/severance-tray \
             share/units/severance-tray@.service \
             share/wireplumber/wireplumber.conf.d/50-severance-access.conf; do
     if [ ! -e "$_ps_new/$_r" ]; then

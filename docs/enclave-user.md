@@ -176,30 +176,23 @@ group, and its sockets are made 0770 so only that group connects.
   Wiring it into the login user's PipeWire unit is the integrator's.
 - NOTIFICATIONS: see the relay, below.
 - TRAY: an enclave app registers its StatusNotifier icon on the ENCLAVE's
-  session bus, which the login user cannot reach. libexec/severance-tray-bus
-  (the user unit severance-tray@<enclave>, in the enclave's manager) serves
-  a FILTERED proxy of that bus at `enclave/tray-bus`: the login user's tray
-  may own org.kde.StatusNotifierWatcher there and talk to org.kde.* names
-  (the items and their menus), and nothing else on that bus, the keyring
-  and portals included. LIMITS: an item registered by its unique name is
-  unreachable through a name filter, and org.kde.* also admits any other
-  org.kde service the enclave runs (none by default). BUILT AND TESTED:
-  test/tray.t over a private bus; removing the filter exposes the keyring
-  and fails it.
-
-## The notification relay (owned here)
-
-Enclave apps post notifications to THEIR OWN session bus. The login user's
-bus admits only the login user's uid, so they cannot reach the login user's
-notification daemon directly. The relay bridges exactly that, and nothing
-else:
-
-    enclave bus                         login user's bus
-    severance-relay (as the account)    severance-relay (as the login user)
-    owns org.freedesktop.Notifications  posts to the real daemon
-              \                         /
-               +--- share dir: relay ---+     line-delimited JSON
-
+  session bus, which the login user cannot reach, and a Chromium app
+  serves it from a connection that owns NO name (measured: a chat client
+  registers by its unique name), so no name filter can carry it. libexec/
+  severance-tray, the user unit severance-tray@<enclave> in the enclave's
+  manager, is a RELAY instead. It runs a PRIVATE tray bus (its own
+  dbus-daemon) at `enclave/tray-bus`, which only the account and the login
+  user may join; on the enclave's own bus it IS the StatusNotifierWatcher;
+  and each registered item gets its own connection to the tray bus under a
+  well-known name, registered with the login user's tray there. Calls for
+  it are forwarded to the connection that REGISTERED it, but only the tray
+  and menu methods and Properties reads of those two interfaces; anything
+  else is refused, and the item's signals come back. Nothing else of the
+  enclave is on the tray bus, so there is nothing to filter. BUILT AND
+  TESTED: test/tray.t over private buses, with an item registered by its
+  unique name: relayed, clicked, its menu read, its signal returned,
+  calls outside the allowlist refused, gone when its app goes. Letting
+  everything through, or not following the app's connection, fails it.
 - Enclave to login user: notify (app name, summary, body, actions, a fixed
   subset of hints, expiry), close.
 - Login user to enclave: action invoked, notification closed. Without the

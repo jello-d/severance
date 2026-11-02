@@ -395,13 +395,19 @@ Two changes to what an enclave's share dir and home hold.
 
     /run/severance/<enclave>/enclave/tray-bus
 
-a D-Bus socket filtered to the StatusNotifier protocol: a tray host may own
-`org.kde.StatusNotifierWatcher` there and talk to `org.kde.*` names, and
-reach nothing else on the enclave's bus. It is served by the ENCLAVE, from
-the user unit `severance-tray@<enclave>`, so a missing socket means that
-session is not running and should read as an empty tray. `enclave/` is the
-account's, setgid to the owner's primary group (2710); only that group
-connects. The share dir is `severance enclaves` field 5.
+a PRIVATE message bus carrying only the enclave's tray items, each under a
+well-known name `org.kde.StatusNotifierItem-<pid>-<n>`. A tray host joins
+it, owns `org.kde.StatusNotifierWatcher` there, and the items register with
+it; calls to an item reach the app only for the StatusNotifierItem and
+dbusmenu methods (and Properties reads of those interfaces), and nothing of
+the enclave's own bus is reachable. It is served by the ENCLAVE, from the
+user unit `severance-tray@<enclave>`, so a missing socket means that
+session is not running and should read as an empty tray. (The first
+version, earlier the same day, was a name-filtering proxy of the enclave's
+bus; it could not carry an item served by a connection that owns no name,
+which is how Chromium apps serve theirs, so it was replaced before use.)
+`enclave/` is the account's, setgid to the owner's primary group (2710);
+only that group connects. The share dir is `severance enclaves` field 5.
 
 **A file, given up.** Provision no longer writes the enclave's
 `.config/xdg-desktop-portal/portals.conf`. Which backend serves which portal
