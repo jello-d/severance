@@ -4,21 +4,23 @@
 # conventions: allow -- in the grammar below the dashes are work's OWN
 # end-of-options separator, dividing the profile from the command to run.
 # They are the syntax this file implements, not punctuation.
-#   work                        enter the sole (or default) enclave.
+#   work                        enter the sole enclave.
 #   work enter [profile]        enter, naming the enclave explicitly.
 #   work run [profile] -- CMD   run one command in that enclave and exit with
 #                               its status.
 #
-# The verb and the profile are BOTH omittable: bare `work` is `work enter`, and
-# the profile may be left out when exactly one is provisioned or a default
-# marker is set (with several and no default, it is REQUIRED and work fails
-# loud rather than guessing a group).
+# The profile may be left out ONLY when exactly one is configured (enclaves
+# of yours plus group-model profiles). With two or more it is REQUIRED, and
+# work refuses, listing them: the default marker (`severance use`) does NOT
+# choose for work, because entering the wrong enclave is the one mistake this
+# tool exists to make impossible.
 #
 # No argument is ever GUESSED. The verb set is closed, the profile sits in a
-# fixed slot, and `--` ends work's own arguments, so nothing can be a profile
-# or a command by accident. (It used to take arg1 as the profile only when it
-# happened to name one, which meant an unrecognised word fell through to the
-# sudo re-exec and HUNG with no TTY.)
+# fixed slot after the verb, and for `run` the `--` is mandatory, so the
+# command can never be read as the profile nor the profile as the command,
+# whether or not the profile is given. (It used to take arg1 as the profile
+# only when it happened to name one, which meant an unrecognised word fell
+# through to the sudo re-exec and HUNG with no TTY.)
 #
 # work is the "go do" tool: the ONE privileged action, a human sudo prompt and
 # a session. It answers no questions. "Which enclave is this process in" is
@@ -75,26 +77,33 @@ usage() {
   exit 2
 }
 
-# With no target named: the default marker, else the only candidate. A box
-# with BOTH an enclave of yours and a profile, and no default, is asked to
-# name one, rather than silently entering whichever model wc_load prefers.
+# Every target this user can enter: enclaves they own, then group-model
+# profiles, one per line, de-duplicated.
+_work_targets() {
+  _me=$(id -un)
+  {
+    for _e in $(en_names); do
+      en_load "$_e" 2>/dev/null && [ "$EN_OWNER" = "$_me" ] &&
+        printf '%s\n' "$_e"
+    done
+    wc_profiles 2>/dev/null
+  } | sort -u
+}
+
+# With no target named: the only one, else refuse with the list. Inside a
+# group-model session (WORK_PROFILE set by the re-exec) the session's own
+# profile is the answer, as before, so a nested `work run -- CMD` stays put.
 _work_pick() {
   [ -n "$prof" ] && return 0
   [ "${WORK_REEXEC:-}" = 1 ] && return 0
-  if [ -r "$WC_DEFAULT_FILE" ]; then
-    IFS= read -r prof < "$WC_DEFAULT_FILE" || :
-    [ -n "$prof" ] && return 0
-  fi
-  _mine= _nm=0 _me=$(id -un)
-  for _e in $(en_names); do
-    en_load "$_e" 2>/dev/null && [ "$EN_OWNER" = "$_me" ] || continue
-    _mine=$_e; _nm=$((_nm + 1))
-  done
-  [ "$_nm" -eq 0 ] && return 0
-  _np=$(wc_profiles | wc -l)
-  if [ "$_nm" -eq 1 ] && [ "$_np" -eq 0 ]; then prof=$_mine; return 0; fi
-  echo "work: several enclaves or profiles and no default; name one" \
-    "(work enter <name>) or set one (severance use <name>)" >&2
+  [ -n "${WORK_PROFILE:-}" ] && return 0
+  _all=$(_work_targets)
+  _n=$(printf '%s' "$_all" | grep -c . || :)
+  [ "$_n" -eq 0 ] && return 0
+  if [ "$_n" -eq 1 ]; then prof=$_all; return 0; fi
+  # conventions: allow -- work's own separator, the syntax the user types.
+  echo "work: $_n enclaves configured ($(echo $_all)); name one:" \
+    "work enter <name>, or work run <name> -- CMD" >&2
   return 1
 }
 

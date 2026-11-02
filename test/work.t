@@ -145,6 +145,27 @@ sudo_reached && fail "bare work with an unresolved profile reached sudo"
 rc=0; work enter beta >/dev/null 2>&1 || rc=$?
 [ "$rc" = 97 ] || fail "work enter beta: rc=$rc, want 97 (resolved, re-exec'd)"
 
+# A DEFAULT MARKER DOES NOT CHOOSE for work: with two targets the name is
+# required whatever `severance use` says, and the refusal lists them.
+echo alpha > "$T/default"
+rc=0; out=$(work 2>&1) || rc=$?
+[ "$rc" = 1 ] || fail "bare work with 2 profiles AND a default: rc=$rc, want 1"
+sudo_reached && fail "bare work let the default marker choose"
+case $out in *"(alpha beta)"*) ;; *) fail "refusal lists no names: $out" ;;
+esac
+# conventions: allow -- work's own separator, quoted from the grammar
+rc=0; work run -- true >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "work run with no name and 2 profiles: rc=$rc, want 1"
+rm -f "$T/default"
+# ...but INSIDE a group session the session's own profile answers, so a
+# nested bare work stays where it is rather than refusing.
+rc=0
+env -u WORK_REEXEC -u WC_CONFIG WORK_PROFILE=beta \
+  SEVERANCE_LIB="$WCLIB" WC_PROFILES_DIR="$PG" WC_DEFAULT_FILE="$T/default" \
+  PATH="$T/bin:$PATH" SEVERANCE_ENCLAVES_DIR="$T/enclaves" \
+  sh "$WORK" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 97 ] || fail "nested bare work in a session refused: rc=$rc"
+
 # --- work knows NOTHING about the box's shell framework ----------------------
 # A session's environment (PATH, toolchain managers, history) is the ENCLAVE's
 # business, set in its .workrc, which both paths source. work used to hardcode

@@ -56,10 +56,14 @@ Run one command in the enclave and exit with its status. The
 .B --
 is mandatory, so no name lookup decides whether the first word is a profile.
 .PP
-The profile may be omitted when exactly one is provisioned or a default marker
-is set. With several and no default it is REQUIRED, and
+The profile may be omitted only when exactly one is configured (your
+enclaves plus any group-model profiles). With two or more it is REQUIRED:
 .B work
-fails loud rather than guessing a group.
+refuses and lists them. The default marker set by
+.B severance use
+does not choose for
+.BR work ,
+since entering the wrong enclave is the mistake it exists to prevent.
 .SH COMMANDS
 .TP
 .B install \fR/\fB uninstall
@@ -106,7 +110,9 @@ Print the resolved settings for a profile (or the default). A HUMAN report for
 debugging a record: read it, do not parse it.
 .TP
 .BI use " profile" "\fR|\fB --clear"
-Set (or clear) the default-profile marker.
+Set (or clear) the default-profile marker. It names the active profile for
+readers that need one; it never chooses an enclave for
+.BR work .
 .TP
 .BI init " name " [key=val ...]
 Scaffold a new profile record under

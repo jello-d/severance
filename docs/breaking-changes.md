@@ -332,3 +332,20 @@ severance ships no adapter, hook or shim for any consumer, and audits none of
 their config. If a consumer's seam has a shape severance's CLI does not fit,
 the adapter for it lives with the consumer or the integrator, never here,
 where it would be a copy of our own verbs going stale behind our back.
+
+## 15. The default marker no longer chooses an enclave for `work`
+
+Bare `work`, and `work run -- CMD` with no profile, now pick a target ONLY
+when exactly one is configured: the enclaves you own plus any group-model
+profiles. With two or more, `work` refuses, exit 1, and lists them, even when
+`severance use <name>` has set a default.
+
+Before, the default marker won. On a box with a new enclave beside an old
+profile, bare `work` silently entered whichever one the marker named, which
+is the wrong-enclave mistake `work` exists to make impossible.
+
+**If you call `work` from a script**, name the target:
+`work enter <name>` or `work run <name> -- CMD`. Inside a group-model
+session, a nested bare `work` still means that session's own profile.
+
+The marker itself is unchanged, and so is every other reader of it.
