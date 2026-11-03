@@ -112,9 +112,9 @@ _work_pick() {
 # this user (or anything running as this user) could change would be code
 # that runs as the enclave on the next entry. SEVERANCE_SYS_PREFIX is the
 # test seam, as in setup.sh, and lifts only the ownership check.
-_work_helper() {
+_work_helper() {   # [helper name, default work-session]
   _sp=${SEVERANCE_SYS_PREFIX:-/opt/severance}
-  _h=$_sp/share/severance/libexec/work-session
+  _h=$_sp/share/severance/libexec/${1:-work-session}
   [ -x "$_h" ] || {
     echo "work: the shared install is missing ($_h); root places it" \
       "with 'sh setup.sh install --system'" >&2; return 1; }
@@ -126,6 +126,21 @@ _work_helper() {
       return 1; }
   fi
   printf '%s\n' "$_h"
+}
+
+# `work run` with no terminal: ask through POLKIT, one human prompt per
+# launch (pkexec's default action is auth_admin, never kept), and start the
+# command in the enclave's running user manager through libexec/work-launch.
+# Exits with the launch's status, or 126 when the prompt was dismissed.
+# Returns (to the refusal) only when nobody could be asked: no pkexec, no
+# launcher, or pkexec's 127 (no agent, or authentication failed).
+_work_polkit() {
+  command -v pkexec >/dev/null 2>&1 || return 0
+  _l=$(_work_helper work-launch 2>/dev/null) || return 0
+  _rc=0
+  pkexec --user "$EN_ACCOUNT" "$_l" "$prof" -- "$@" || _rc=$?
+  [ "$_rc" = 127 ] && return 0
+  exit "$_rc"
 }
 
 # Enter the enclave AS ITS ACCOUNT. `sudo -i` is the human gate and gives the
@@ -145,8 +160,12 @@ _work_enclave() {
   [ "$mode" = run ] || set --
   if [ "$_me" = "$EN_ACCOUNT" ]; then exec "$_h" "$@"; fi
   if [ ! -t 0 ] && ! sudo -n -u "$EN_ACCOUNT" true 2>/dev/null; then
-    echo "work: no terminal to authenticate on. Launching without one" \
-      "(polkit) is not built yet." >&2
+    [ "$mode" = run ] && _work_polkit "$@"
+    # The phrase "no terminal to authenticate on" is a CONTRACT: a launcher
+    # keys its own fallback (a terminal for sudo) on it. Printed only when
+    # nobody could be asked, never after the human said no.
+    echo "work: no terminal to authenticate on, and no polkit agent" \
+      "answered." >&2
     return 1
   fi
   # RUN does NOT use -i. `sudo -i` hands the command to the enclave's LOGIN

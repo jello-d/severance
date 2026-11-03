@@ -432,3 +432,21 @@ instead: those names were never a contract, and the day one moves, a
 composed path fails with nothing to say why. A reader taking fields 1 to 5
 by number is unaffected; one that required EXACTLY five fields must accept
 more, since columns are only ever appended.
+
+## 20. `work run` with no terminal asks through polkit
+
+Before, `work run <enclave> -- CMD` with no terminal refused, saying "no
+terminal to authenticate on". Now it asks through POLKIT: `pkexec --user
+<account>` runs `libexec/work-launch` from the shared install, which starts
+CMD as a transient unit in the enclave's running user manager and returns
+once it has started. pkexec's default action is auth_admin, never kept, so
+every launch is a human prompt (a fingerprint works where polkit's PAM
+stack has it).
+
+Exit status: the launch's (0 once started); **126** when the prompt was
+dismissed, with no fallback, because the human said no; **1** with the
+phrase **"no terminal to authenticate on"** when nobody could be asked (no
+pkexec, no polkit agent, failed authentication, or no launcher installed).
+That phrase is now a CONTRACT: a launcher may key a terminal fallback on
+it, and changing it is a breaking change. `work enter` never uses polkit:
+an interactive shell needs a terminal.

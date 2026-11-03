@@ -208,6 +208,53 @@ SSP=$T/sys
 # No TTY and no cached sudo: refused by name; sudo is never asked to prompt.
 rc=0; work enter acme </dev/null >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "enclave entry with no TTY: rc=$rc, want 1"
+
+# No TTY, `work run`: POLKIT. A pkexec stub stands FIRST on PATH for every
+# case below (the real one would raise a real prompt on the desktop), and
+# records its argv and exits with the status in $T/pkx-rc.
+LA=$T/sys/share/severance/libexec/work-launch
+printf '#!/bin/sh\nexit 0\n' > "$LA"
+chmod +x "$LA"
+{ echo '#!/bin/sh'
+  printf 'printf "%%s\\n" "$*" > %s/pkexec-argv\n' "$T"
+  printf 'exit "$(cat %s/pkx-rc)"\n' "$T"
+} > "$T/bin/pkexec"
+chmod +x "$T/bin/pkexec"
+pk() {   # <pkexec status> -> sets rc and err for `work run acme -- make test`
+  echo "$1" > "$T/pkx-rc"; rm -f "$T/pkexec-argv"
+  rc=0; err=$(work run acme -- make test </dev/null 2>&1 >/dev/null) || rc=$?
+}
+pk 0
+[ "$rc" = 0 ] || fail "a polkit launch that started: rc=$rc ($err)"
+[ "$(cat "$T/pkexec-argv")" = "--user $ME-acme $LA acme -- make test" ] ||
+  fail "pkexec argv: '$(cat "$T/pkexec-argv")'"
+# The only sudo call is the `-n` probe for cached credentials.
+[ -z "$(grep -v '^-n ' "$T/sudo-argv" 2>/dev/null)" ] ||
+  fail "a polkit launch also went to sudo: $(cat "$T/sudo-argv")"
+# Dismissed (126): the human said no, so exit 126 and NO terminal fallback,
+# which a launcher keys on the phrase.
+pk 126
+[ "$rc" = 126 ] || fail "a dismissed prompt: rc=$rc, want 126"
+case $err in *"no terminal to authenticate on"*)
+  fail "a dismissed prompt printed the fallback phrase: $err" ;; esac
+# Nobody could be asked (127: no agent, or authentication failed): the
+# phrase, so the launcher falls back to a terminal.
+pk 127
+case "$rc $err" in "1 "*"no terminal to authenticate on"*) ;;
+  *) fail "polkit unavailable: rc=$rc '$err'" ;; esac
+# No launcher in the shared install: refused by phrase, pkexec never asked.
+rm -f "$LA"
+pk 0
+case "$rc $err" in "1 "*"no terminal to authenticate on"*) ;;
+  *) fail "no launcher: rc=$rc '$err'" ;; esac
+[ -e "$T/pkexec-argv" ] && fail "pkexec was asked without a launcher"
+printf '#!/bin/sh\nexit 0\n' > "$LA"; chmod +x "$LA"
+# ENTER never goes to polkit: an interactive shell needs a terminal.
+echo 0 > "$T/pkx-rc"; rm -f "$T/pkexec-argv"
+rc=0; work enter acme </dev/null >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] && [ ! -e "$T/pkexec-argv" ] ||
+  fail "enter with no TTY went to polkit (rc=$rc)"
+rm -f "$T/bin/pkexec"
 # Cached credentials (`sudo -n` succeeds): entry reaches sudo -i.
 { echo '#!/bin/sh'
   echo '[ "$1" = -n ] && exit 0'

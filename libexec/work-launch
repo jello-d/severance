@@ -1,0 +1,47 @@
+#!/bin/sh
+# conventions: allow -- the dashes are the launcher's own separator (syntax)
+# work-launch <enclave> -- CMD...: start CMD in an enclave's RUNNING user
+# manager. Runs AS the enclave account, started by `work run` through
+# `pkexec --user <account>` when there is no terminal to ask on
+# (docs/enclave-user.md, "Detection and entry"). Each launch is a human
+# polkit prompt; nothing is kept between launches.
+#
+# WHY THE USER MANAGER: pkexec's own session is a bare one (no logind
+# session, no environment.d), so the command is handed to the enclave's
+# lingering manager as a transient unit. It then has exactly the
+# environment the enclave's other apps have, never the caller's, and this
+# returns as soon as it has STARTED, so a launcher is not held open.
+#
+# Refuses (exit 2) unless it runs as the named enclave's account AND the
+# user who asked (pkexec's PKEXEC_UID) owns that enclave: a prompt answered
+# for one enclave never starts anything in another, and no other user's
+# admin password starts anything here.
+#
+# Shipped in the SHARED install only (pkexec runs it by absolute path, as
+# the enclave account, which cannot read the owner's home).
+set -eu
+
+say() { echo "work-launch: $*" >&2; }
+[ "$#" -ge 3 ] && [ "$2" = -- ] || {
+  # conventions: allow -- the usage prints the launcher's own separator
+  say "usage: work-launch <enclave> -- CMD..."; exit 2; }
+en=$1
+shift 2
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+me=$(id -u)
+got=$("$here/../bin/severance" enclave-of uid "$me" 2>/dev/null) || got=
+[ "$got" = "$en" ] || {
+  say "refusing: this account is not enclave '$en'"; exit 2; }
+share=${SEVERANCE_SHARE_ROOT:-/run/severance}/$en
+owner=$(stat -c %u "$share" 2>/dev/null) || owner=
+[ -n "${PKEXEC_UID:-}" ] && [ "$owner" = "$PKEXEC_UID" ] || {
+  say "refusing: only the owner of '$en' may launch into it"; exit 2; }
+
+rt=${SEVERANCE_RUN_USER_ROOT:-/run/user}/$me
+[ -S "$rt/bus" ] || {
+  say "enclave '$en' has no running session ($rt/bus); is it lingering?"
+  exit 1; }
+export XDG_RUNTIME_DIR="$rt" DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/bus"
+exec systemd-run --user --quiet --collect \
+  --property="Description=work: an app in enclave $en" -- "$@"

@@ -168,6 +168,7 @@ _payload_stage() {
   # before the swap, so a failed copy leaves the live payload untouched.
   for _r in bin/severance bin/work lib/work-context_lib share/tools \
             share/units/severance-dockerd@.service libexec/work-session \
+            libexec/work-launch \
             share/units/severance-display@.service \
             libexec/severance-display libexec/severance-notify \
             libexec/severance-share-chooser \

@@ -55,6 +55,11 @@ is
 Run one command in the enclave and exit with its status. The
 .B --
 is mandatory, so no name lookup decides whether the first word is a profile.
+With NO terminal (a launcher, a bar), it asks through polkit instead of
+sudo: one human prompt per launch, never kept, and the command starts in
+the enclave's running user manager and returns once started. A dismissed
+prompt exits 126. When nobody could be asked, it exits 1 saying "no
+terminal to authenticate on", a phrase a launcher may key a fallback on.
 .PP
 The profile may be omitted only when exactly one is configured (your
 enclaves plus any group-model profiles). With two or more it is REQUIRED:

@@ -331,9 +331,17 @@ Each change is a `docs/breaking-changes.md` entry.
 
 ## Open questions
 
-1. LAUNCH WITHOUT A TTY: a transient unit in the enclave's user manager
-   (polkit-authorised) or `pkexec` with the enclave's environment. Settled by
-   a spike.
+1. DECIDED AND BUILT: LAUNCH WITHOUT A TTY. `work run` with no terminal
+   asks through polkit: `pkexec --user <account>` runs
+   libexec/work-launch, which checks it is the named enclave's account and
+   that the asker owns it, then starts the command as a transient unit in
+   the enclave's RUNNING user manager (so it has the enclave's environment)
+   and returns once it has started. pkexec's default action is auth_admin,
+   never kept, so EVERY launch is a human prompt. Dismissed: exit 126, no
+   fallback. Nobody could be asked (no agent, failed authentication): the
+   phrase "no terminal to authenticate on", which a launcher may key a
+   terminal fallback on. A local polkit rule could loosen auth_admin; that
+   is the box's administrator's to keep closed.
 2. DECIDED: registry records are written by a severance verb run as root,
    which the integrator's root-scope provisioning calls.
 3. DECIDED AND BUILT: the shared install, above.
