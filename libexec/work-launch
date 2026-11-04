@@ -43,5 +43,10 @@ rt=${SEVERANCE_RUN_USER_ROOT:-/run/user}/$me
   say "enclave '$en' has no running session ($rt/bus); is it lingering?"
   exit 1; }
 export XDG_RUNTIME_DIR="$rt" DBUS_SESSION_BUS_ADDRESS="unix:path=$rt/bus"
-exec systemd-run --user --quiet --collect \
+# ExitType=cgroup: the unit lasts until its LAST process does, not its
+# first. A launcher commonly detaches (`setsid -f`), so the command's own
+# process exits at once; with the default the unit then ended and systemd
+# killed the app it had just forked, silently. Measured live: two launches
+# from a bar menu started and died within a second, nothing logged.
+exec systemd-run --user --quiet --collect --property=ExitType=cgroup \
   --property="Description=work: an app in enclave $en" -- "$@"

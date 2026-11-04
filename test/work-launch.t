@@ -52,7 +52,7 @@ launch() {   # <PKEXEC_UID or -> <args...>: sets rc and err
 
 launch "$ME" acme -- make test
 [ "$rc" = 0 ] || fail "a good launch failed: rc=$rc $err"
-want="--user --quiet --collect"
+want="--user --quiet --collect --property=ExitType=cgroup"
 want="$want --property=Description=work: an app in enclave acme -- make test"
 [ "$(cat "$T/run-argv")" = "$want" ] ||
   fail "systemd-run argv: $(cat "$T/run-argv")"
@@ -81,4 +81,37 @@ for bad in "acme" "acme make" "acme --"; do
   [ "$rc" = 2 ] || fail "usage '$bad': rc=$rc"
 done
 
-pass "starts in the enclave's manager; wrong enclave or owner refused"
+# AGAINST A REAL USER MANAGER: the caller's own, posing as an enclave whose
+# account is this uid. The command DETACHES (`setsid -f`, as a launcher's
+# does) and its child must still be alive a second later: with a default
+# service the unit ends with its main process and takes the child along,
+# which is how launches from a bar menu died silently. Skipped where there
+# is no user manager to ask; the one process started is killed by pid.
+if [ -S "/run/user/$ME/bus" ] && command -v systemd-run >/dev/null 2>&1; then
+  cat > "$T/bin/getent" <<EOF
+#!/bin/sh
+case "\$1 \$2" in
+  "passwd $ME"|"passwd alice-acme")
+    echo 'alice-acme:x:$ME:$ME::/home/alice-acme:/bin/sh' ;;
+  *) exit 2 ;;
+esac
+EOF
+  rm -f "$T/bin/id" "$T/bin/systemd-run"
+  mark=$((40000 + $$ % 20000))
+  rc=0
+  err=$(env -i PATH="$T/bin:/usr/bin:/bin" HOME="$HOME" \
+    SEVERANCE_ENCLAVES_DIR="$T/enclaves" SEVERANCE_SHARE_ROOT="$T/share" \
+    PKEXEC_UID="$ME" sh "$L" acme -- \
+    sh -c "exec setsid -f sleep $mark" 2>&1) || rc=$?
+  [ "$rc" = 0 ] || fail "a real launch failed: rc=$rc $err"
+  sleep 1
+  pid=$(pgrep -u "$ME" -f "^sleep $mark\$" || :)
+  [ -n "$pid" ] && kill $pid
+  [ -n "$pid" ] ||
+    fail "the detached app did not survive its launch (ExitType?)"
+  real=" and a detached app survives"
+else
+  real=" (no user manager: real launch skipped)"
+fi
+
+pass "starts in the enclave's manager; wrong enclave or owner refused$real"
