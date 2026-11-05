@@ -387,8 +387,59 @@ _pv_check() {   # [name...]
     _pv_check_share
     _pv_check_docker
     _pv_check_user_units
+    _pv_check_repos
   done
   return "$REPORT_RC"
+}
+
+# --- the repo-consistency audit (record key git_remote_glob) ---------------
+# A repo is WORK when its origin matches the enclave's glob. Two findings,
+# REPORTED and never enforced (a walk that refuses can be wrong about a
+# tool's cache):
+#   a work-remote repo in the OWNER's ~/src, where personal tooling reads it
+#   a personal-remote repo in the ENCLAVE's ~/src, outside ~/src/carveout,
+#     which is the one direction no server refuses: the enclave's own
+#     credential reaches the owner's personal account
+# A repo with no origin is neither (it can push nowhere). No glob declared:
+# the audit is off, which is said rather than reported as a finding.
+_pv_check_repos() {
+  if [ -z "$EN_GIT_REMOTE_GLOB" ]; then
+    _ok "repo audit off (no git_remote_glob in the record)"; return 0; fi
+  _pv_oh=$(getent passwd "$EN_OWNER" 2>/dev/null | cut -d: -f6)
+  _pv_repo_side "$EN_OWNER" "$_pv_oh/src" work \
+    "work-remote repo outside enclave $EN_NAME"
+  _pv_repo_side "$EN_ACCOUNT" "$EN_HOME/src" personal \
+    "personal-remote repo inside enclave $EN_NAME"
+}
+
+# One side of the audit: walk <root> AS <user> (whose files they are) and
+# report each repo of the <wrong> kind. Runs directly as that user, through
+# runuser as root, and is otherwise said to be unverifiable.
+_pv_repo_side() {   # <user> <root> <work|personal> <finding>
+  if [ "$1" = "$(id -un)" ]; then _pv_rw=
+  elif [ "$(id -u)" = 0 ]; then _pv_rw="runuser -u $1 --"
+  else _ok "$2: repos unverifiable here (as $1, or root)"; return 0; fi
+  # shellcheck disable=SC2086
+  _pv_rl=$($_pv_rw sh -c '
+    [ -d "$1" ] || exit 0
+    find "$1" -name .git -prune -type d -print 2>/dev/null |
+    while IFS= read -r g; do
+      r=${g%/.git}
+      u=$(git -C "$r" config --get remote.origin.url 2>/dev/null) || continue
+      case $u in $2) echo "work $r" ;; *) echo "personal $r" ;; esac
+    done' _ "$2" "$EN_GIT_REMOTE_GLOB" 2>/dev/null) || _pv_rl=
+  _pv_rn=0
+  _pv_rtmp=$(mktemp) || return 1
+  printf '%s\n' "$_pv_rl" > "$_pv_rtmp"
+  # Default IFS: the first word is the kind, the REST of the line (spaces
+  # and all) the path. An empty IFS would not split it at all.
+  while read -r _pv_rk _pv_rp; do
+    [ "$_pv_rk" = "$3" ] || continue
+    case "$_pv_rp/" in "$EN_HOME/src/carveout/"*) continue ;; esac
+    _bad "$4: $_pv_rp"; _pv_rn=$((_pv_rn + 1))
+  done < "$_pv_rtmp"
+  rm -f "$_pv_rtmp"
+  [ "$_pv_rn" -gt 0 ] || _ok "$2: no $3-remote repo on the wrong side"
 }
 
 _pv_check_account() {

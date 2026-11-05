@@ -352,5 +352,14 @@ Each change is a `docs/breaking-changes.md` entry.
    successor, once Electron and Chrome support it without a flag.
 5. THE DISPLAY HELPER: language and dependencies; it is one protocol
    request plus keeping a file descriptor open.
-6. THE REPO AUDIT (`git_remote_glob`): a work-remote clone on the personal
-   side is still a leak worth reporting. Kept, restated for the new layout.
+6. BUILT: THE REPO AUDIT (`git_remote_glob`). This entry said "kept" for
+   two days while nothing read the key; an integrator noticed. Now
+   `severance enclave check` reports, never enforces, both directions: a
+   repo whose origin matches the glob in the OWNER's `~/src`, and one whose
+   origin does not in the ENCLAVE's `~/src`, except under
+   `~/src/carveout`. The second is the direction no server refuses: the
+   enclave's own credential reaches the owner's personal account. Each
+   tree is walked AS the user whose tree it is (as root through runuser);
+   unprivileged, the other side is reported unverifiable. A repo with no
+   origin is not a finding; no glob declared turns the audit off, said as
+   an OK line. test/repo-audit.t, over real repos.
