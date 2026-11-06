@@ -9,8 +9,9 @@
 # manager, and does not see it. Measured: DOCKER_HOST set in the manager and
 # in a unit it starts, absent in a `sudo -iu` shell.
 #
-# HOW: systemd's own environment.d generator, so the values and the merge
-# rules are exactly what the manager gets. It prints KEY=VALUE, shell-quoting
+# HOW: systemd's own user environment-GENERATORS, ALL of them, run as the
+# manager runs them, so the values and the merge rules are exactly what the
+# manager gets. The environment.d one prints KEY=VALUE, shell-quoting
 # a value with spaces as KEY="a b" and escaping with backslashes; that one
 # level of quoting is undone here and each line is EXPORTED AS DATA. Nothing
 # is eval'd, so a value can never run as code.
@@ -37,33 +38,66 @@ case ${DBUS_SESSION_BUS_ADDRESS:-} in
   *) unset DBUS_SESSION_BUS_ADDRESS ;;
 esac
 
-_gen=
-_rel=user-environment-generators/30-systemd-environment-d-generator
-for _g in /usr/lib/systemd/$_rel /lib/systemd/$_rel; do
-  if [ -x "$_g" ]; then _gen=$_g; break; fi
-done
-[ -n "$_gen" ] || {
-  echo "work-session: systemd's environment.d generator not found" >&2
-  exit 1; }
-_env=$("$_gen") || { echo "work-session: $_gen failed" >&2; exit 1; }
-
-# One line per assignment. Unquote KEY="..." (backslash escapes \" \\ \$ \`
-# inside it), leave KEY=bare alone, and drop anything that is not KEY=.
-_env=$(printf '%s\n' "$_env" | sed -n \
-  -e '/^[A-Za-z_][A-Za-z0-9_]*="/{
-        s/^\([A-Za-z_][A-Za-z0-9_]*\)="\(.*\)"$/\1=\2/
-        s/\\\(["\\$`]\)/\1/g
-        p
-        d
-      }' \
-  -e '/^[A-Za-z_][A-Za-z0-9_]*=/p')
-set -f
-_ifs=$IFS
-IFS='
+# Each generator's output, one line per assignment, EXPORTED AS DATA. Unquote
+# KEY="..." (backslash escapes \" \\ \$ \` inside it), leave KEY=bare alone,
+# and drop anything that is not KEY=. Nothing is eval'd.
+_ws_apply() {   # <generator output>
+  _ws_e=$(printf '%s\n' "$1" | sed -n \
+    -e '/^[A-Za-z_][A-Za-z0-9_]*="/{
+          s/^\([A-Za-z_][A-Za-z0-9_]*\)="\(.*\)"$/\1=\2/
+          s/\\\(["\\$`]\)/\1/g
+          p
+          d
+        }' \
+    -e '/^[A-Za-z_][A-Za-z0-9_]*=/p')
+  set -f
+  _ws_ifs=$IFS
+  IFS='
 '
-for _l in $_env; do export "$_l"; done
-IFS=$_ifs
-set +f
+  for _ws_l in $_ws_e; do export "$_ws_l"; done
+  IFS=$_ws_ifs
+  set +f
+}
+
+# EVERY user environment-generator, as the account's own manager runs them:
+# each NAME once, the first directory holding it wins (an empty file or a
+# /dev/null link MASKS it), in name order, each seeing what the earlier ones
+# exported. Pinning the environment.d generator by name was complete only
+# while it was the only one; a second (a per-account token, root-owned) now
+# exists on real boxes, and the manager ran it while this did not.
+# SEVERANCE_ENV_GENERATOR_DIRS is the test seam.
+_ws_g=user-environment-generators
+_ws_dirs=${SEVERANCE_ENV_GENERATOR_DIRS:-"/run/systemd/$_ws_g
+/etc/systemd/$_ws_g
+/usr/local/lib/systemd/$_ws_g
+/usr/lib/systemd/$_ws_g
+/lib/systemd/$_ws_g"}
+_ws_envd=30-systemd-environment-d-generator
+_ws_seen=
+for _ws_n in $(for _ws_d in $_ws_dirs; do
+                 for _ws_f in "$_ws_d"/*; do
+                   [ -e "$_ws_f" ] || [ -L "$_ws_f" ] || continue
+                   printf '%s\n' "${_ws_f##*/}"
+                 done
+               done | LC_ALL=C sort -u); do
+  for _ws_d in $_ws_dirs; do
+    [ -e "$_ws_d/$_ws_n" ] || [ -L "$_ws_d/$_ws_n" ] || continue
+    if [ -x "$_ws_d/$_ws_n" ] && [ -s "$_ws_d/$_ws_n" ]; then
+      if _ws_o=$("$_ws_d/$_ws_n"); then
+        _ws_apply "$_ws_o"
+        [ "$_ws_n" = "$_ws_envd" ] && _ws_seen=1
+      else
+        echo "work-session: WARN generator $_ws_d/$_ws_n failed;" \
+          "its variables are missing" >&2
+      fi
+    fi
+    break
+  done
+done
+[ -n "$_ws_seen" ] || {
+  echo "work-session: systemd's environment.d generator not found" \
+    "(or it failed), so the enclave has no environment" >&2
+  exit 1; }
 
 # `work run` arrives through a NON-login sudo (so its argv is not re-parsed
 # by a shell), which opens no session: supply the runtime dir and the session
