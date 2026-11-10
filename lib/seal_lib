@@ -176,11 +176,15 @@ sev_seal() {
     _any=1
     _guard_one
   done
-  [ "$_any" = 1 ] || { echo "severance: no profiles; skipping" >&2; return 0; }
-
   # git fragment: one block per profile (render_git_gen iterates internally).
+  # Written BEFORE the no-profiles return, because sev_seal_check asserts it
+  # unconditionally: with the return first, a fresh personal-only box got no
+  # fragment from apply and a FAIL from check, for ever (found on a repave,
+  # where no older run had left one behind). With no profiles the render is
+  # just its header, which is exactly what such a box should carry.
   mkdir -p "$(dirname "$GIT_GEN")"; render_git_gen > "$GIT_GEN"
   echo "severance: git fragment $GIT_GEN"
+  [ "$_any" = 1 ] || { echo "severance: no profiles; skipping" >&2; return 0; }
 
   # NO passwordless `work` grant. A blanket NOPASSWD on `work` let ANY login
   # process silently acquire the group, turning the kernel wall into a rule

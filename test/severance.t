@@ -185,6 +185,26 @@ seal_run >/dev/null 2>&1 && fail "seal check passed with a permanent member"
 rm -f "$T/perm_member"
 seal_run >/dev/null 2>&1 || fail "seal check drifted after healing every knob"
 
+# --- a fresh personal-only box: apply must leave what check asserts ----------
+# The seal apply used to return on "no profiles" BEFORE writing the git
+# fragment, while check asserts the fragment unconditionally, so a box with no
+# profiles and no older fragment failed check after every apply (dragonfly's
+# repave). Apply then check, over an empty profiles dir and no fragment.
+# DRYRUN only stands in for the sudo prime: the fragment is the user's own
+# file and is written for real either way.
+mkdir -p "$T/noprof"
+rm -f "$T/gitgen0"
+env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" \
+  WC_PROFILES_DIR="$T/noprof" SUDOERS="$T/sudoers" GIT_GEN="$T/gitgen0" \
+  SCAN_ROOT="$T/empty" SEVERANCE_DRYRUN=1 "$SEV" seal >/dev/null 2>&1 \
+  || fail "seal apply failed with no profiles"
+[ -f "$T/gitgen0" ] || fail "seal apply wrote no git fragment with no profiles"
+_np=$(env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" \
+  WC_PROFILES_DIR="$T/noprof" SUDOERS="$T/sudoers" GIT_GEN="$T/gitgen0" \
+  SCAN_ROOT="$T/empty" "$SEV" check --seal 2>&1) && _nprc=0 || _nprc=$?
+echo "$_np" | grep -q 'git fragment current' \
+  || fail "no-profiles box: check does not call the fragment current: $_np"
+
 # ============================ RUNNER ========================================
 
 # --- _next_subid_block: next free 65536 block past the highest allocation ----
