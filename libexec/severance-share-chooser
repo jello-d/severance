@@ -1,11 +1,12 @@
 #!/usr/bin/python3 -I
-"""severance-share-chooser: pick which enclave window to share.
+"""severance-share-chooser: pick which enclave screen or window to share.
 
 The chooser an ENCLAVE's xdg-desktop-portal-wlr runs for screen sharing
 (its config names this as a `dmenu` chooser). The portal writes one target
 per line on stdin and takes the line printed on stdout as the choice;
-printing nothing declines. A window line is
+printing nothing declines. The lines are
 
+    Monitor: <output name> <description>
     Window: <title> (<identifier>) [<app id>]
 
 where the `[<app id>]` part is wayfire-mods' xdpw-chooser-app-id patch: an
@@ -13,18 +14,21 @@ older backend omits it, and the row then shows the title with a generic
 icon. The line printed back is ALWAYS the one received, unaltered, because
 the portal matches it byte for byte against its own.
 
-ONLY WINDOWS ARE OFFERED. An enclave may capture its own windows and never
-a whole output (a screen holds personal windows), so the compositor refuses
-an output, and offering one would only produce a share that fails.
+A SCREEN IS OFFERED ONLY WHEN THE COMPOSITOR CAN DRAW IT SAFELY, and that is
+the portal's decision, not this chooser's: wayfire-mods gives an enclave a
+screen source that draws only that enclave's windows, and the portal offers
+monitors only when such a source exists. So a Monitor line is shown as it
+comes; screens are listed first.
 
 AN ORDINARY WINDOW, not an overlay: an enclave gets no layer-shell, so the
 usual pickers (slurp, wofi) cannot run, and as a normal toplevel this window
 carries the enclave's mark, which is how the person sees which side asks.
 Its app id is APP_ID, fixed, so a compositor rule can key on it (an
 integrator makes it sticky and always on top, for instance).
-Each row is the app's icon and its name, small and dim (from the ENCLAVE's
-own desktop files), over the window's title, bold: the title is what a
-person matches on, and the icon already says which app. The header takes
+Each window row is the app's icon and its name, small and dim (from the
+ENCLAVE's own desktop files), over the window's title, bold: the title is
+what a person matches on, and the icon already says which app. A screen row
+is a display icon, "Screen", and the monitor's description. The header takes
 SEVERANCE_ENCLAVE_COLOR (any CSS colour) when set, else the theme's accent.
 An unanswered prompt DECLINES after SEVERANCE_CHOOSER_TIMEOUT seconds
 (default 120), rather than leaving the portal waiting forever.
@@ -40,14 +44,18 @@ import sys
 
 APP_ID = "severance-share-chooser"
 PREFIX = "Window: "
+SCREEN = "Monitor: "
+SCREEN_ICON = "video-display"
 LINE = re.compile(r"^Window: (?P<title>.*) \((?P<ident>[^() ]*)\)"
                   r"(?: \[(?P<app>[^\]]*)\])?$")
 FALLBACK_ICON = "application-x-executable"
 
 
 def candidates(lines):
-    return [ln for ln in (x.rstrip("\n") for x in lines)
-            if ln.startswith(PREFIX)]
+    """Screens first, then windows, each in the order the portal gave."""
+    lines = [x.rstrip("\n") for x in lines]
+    return ([ln for ln in lines if ln.startswith(SCREEN)] +
+            [ln for ln in lines if ln.startswith(PREFIX)])
 
 
 def parse(line):
@@ -92,6 +100,10 @@ def app_info(app_id):
 
 def describe(line):
     """(name, title, icon) a row shows: icon is a GIcon string."""
+    if line.startswith(SCREEN):
+        name, _, desc = line[len(SCREEN):].partition(" ")
+        return ("Screen", "%s (%s)" % (desc, name) if desc else name,
+                SCREEN_ICON)
     title, app_id = parse(line)
     info = app_info(app_id)
     if info is not None:
@@ -161,13 +173,15 @@ def choose(cands, enclave, timeout):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         win = Gtk.Window()
-        win.set_title("Share a window from %s" % enclave)
+        win.set_title("Share from %s" % enclave)
         win.set_default_size(*size())
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
         head = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         head.add_css_class("sev-header")
-        h1 = Gtk.Label(label="Share a window", xalign=0)
+        screens = any(c.startswith(SCREEN) for c in cands)
+        h1 = Gtk.Label(label="Share a screen or window" if screens else
+                       "Share a window", xalign=0)
         h1.add_css_class("sev-heading")
         h2 = Gtk.Label(label="from %s" % enclave, xalign=0)
         h2.add_css_class("sev-sub")
@@ -200,7 +214,7 @@ def choose(cands, enclave, timeout):
             outer.append(scroll)
         else:
             outer.append(Gtk.Label(
-                label="%s has no window that can be shared." % enclave,
+                label="%s has nothing that can be shared." % enclave,
                 vexpand=True))
 
         buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)

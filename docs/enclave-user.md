@@ -122,9 +122,10 @@ group, and its sockets are made 0770 so only that group connects.
   registers it through `wp_security_context_manager_v1`, as Flatpak does
   (sandbox engine `severance`, app id and instance id = the enclave). The
   compositor then offers clients on it only an ALLOWLIST of protocols: no
-  screen capture, no clipboard reading, no synthetic input, and window
-  capture of the enclave's OWN windows only, so screen sharing from an
-  enclave browser shows that enclave and nothing else. The allowlist is the
+  capture of the real screen, no clipboard reading, no synthetic input; window
+  capture of the enclave's OWN windows, and a screen of its own that draws
+  only those windows, so screen sharing from an enclave browser shows that
+  enclave and nothing else. The allowlist is the
   compositor's job; this package only creates the socket. BUILT:
   libexec/severance-display (standard-library Python, the wire protocol
   directly), run by the user-unit template severance-display@<enclave>,
@@ -134,8 +135,12 @@ group, and its sockets are made 0770 so only that group connects.
   the allowlist. SCREEN SHARING: provision writes the wlroots portal's
   chooser config naming libexec/severance-share-chooser, an ORDINARY
   window (an enclave gets no overlays, so the usual pickers cannot run)
-  that offers only the
-  enclave's windows and declines when unanswered, and restarts a running
+  that lists what the portal offers, screens first, then the enclave's own
+  windows with their app icons, and declines when unanswered. A screen is
+  offered only where the compositor gives the enclave a screen source of its
+  own that draws nothing but the enclave's windows (wayfire-mods
+  toplevel-capture); the real whole-screen capture never reaches it. It
+  restarts a running
   wlroots portal when that config changes. WHICH backend serves which
   portal interface (portals.conf) is a desktop choice and the
   integrator's; `enclave check` asserts only that every portals config the

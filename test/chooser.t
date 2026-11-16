@@ -1,5 +1,5 @@
 #!/bin/sh
-# test/chooser.t - libexec/severance-share-chooser, the window picker an
+# test/chooser.t - libexec/severance-share-chooser, the share picker an
 # enclave's screen-share portal runs.
 #
 # The filter needs no display. The live half runs the chooser INSIDE an
@@ -15,12 +15,14 @@ harness_init chooser
 
 C=$HERE/libexec/severance-share-chooser
 
-# --- the filter: windows only, never an output -------------------------------
-out=$(printf '%s\n' 'Monitor: DP-1 Dell U2720Q' \
-  'Window: Meet - Google Chrome (google-chrome)' 'Window: Slack (Slack)' \
+# --- the filter: screens first, then windows, nothing else -------------------
+# A screen is offered only when the portal can capture it for this enclave
+# (its own windows drawn alone), so it is listed as it comes.
+out=$(printf '%s\n' 'Window: Meet - Google Chrome (google-chrome)' \
+  'Monitor: DP-1 Dell U2720Q' 'Window: Slack (Slack)' \
   'garbage' | "$C" --candidates)
-want=$(printf '%s\n' 'Window: Meet - Google Chrome (google-chrome)' \
-  'Window: Slack (Slack)')
+want=$(printf '%s\n' 'Monitor: DP-1 Dell U2720Q' \
+  'Window: Meet - Google Chrome (google-chrome)' 'Window: Slack (Slack)')
 [ "$out" = "$want" ] || fail "the candidates were: $out"
 
 # --- what each row shows: name, title, icon ---------------------------------
@@ -37,9 +39,10 @@ printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Chatter' \
 TAB=$(printf '\t')
 rows=$(printf '%s\n' 'Window: Meet - Acme (a1b2) [acme-browser]' \
   'Window: #eng (c3d4) [ChatterApp]' 'Window: Old style (e5f6)' \
-  'Window: Odd (0a) [mystery]' 'Monitor: DP-1' |
+  'Window: Odd (0a) [mystery]' 'Monitor: DP-1 Dell U2720Q' |
   env XDG_DATA_DIRS="$T/xdg" XDG_DATA_HOME="$T/none" "$C" --rows)
-want=$(printf '%s\n' "Acme Browser${TAB}Meet - Acme${TAB}acme-browser" \
+want=$(printf '%s\n' "Screen${TAB}Dell U2720Q (DP-1)${TAB}video-display" \
+  "Acme Browser${TAB}Meet - Acme${TAB}acme-browser" \
   "Chatter${TAB}#eng${TAB}chatter" \
   "Window${TAB}Old style${TAB}application-x-executable" \
   "mystery${TAB}Odd${TAB}application-x-executable")
@@ -115,4 +118,5 @@ took=$(( $(date +%s) - start ))
   fail "the chooser returned in ${took}s, so no window waited: $(tail -3 \
     "$T/chooser.err")"
 
-pass "windows only; opens inside an enclave's context, declines unanswered"
+_msg="screens then windows; opens inside an enclave's context,"
+pass "$_msg declines unanswered"
