@@ -22,8 +22,9 @@ usual pickers (slurp, wofi) cannot run, and as a normal toplevel this window
 carries the enclave's mark, which is how the person sees which side asks.
 Its app id is APP_ID, fixed, so a compositor rule can key on it (an
 integrator makes it sticky and always on top, for instance).
-Each row is the app's icon and name, from the ENCLAVE's own installed apps
-(its desktop files), over the window's title. The header takes
+Each row is the app's icon and its name, small and dim (from the ENCLAVE's
+own desktop files), over the window's title, bold: the title is what a
+person matches on, and the icon already says which app. The header takes
 SEVERANCE_ENCLAVE_COLOR (any CSS colour) when set, else the theme's accent.
 An unanswered prompt DECLINES after SEVERANCE_CHOOSER_TIMEOUT seconds
 (default 120), rather than leaving the portal waiting forever.
@@ -122,8 +123,8 @@ CSS = """
 .sev-heading { font-size: 150%%; font-weight: bold; }
 .sev-sub { opacity: 0.85; }
 .sev-list row { padding: 10px 14px; }
-.sev-app { font-weight: bold; font-size: 115%%; }
-.sev-title { opacity: 0.7; }
+.sev-app { opacity: 0.7; }
+.sev-title { font-weight: bold; font-size: 115%%; }
 .sev-buttons { padding: 12px 18px; }
 .sev-buttons button { padding: 6px 22px; }
 """
