@@ -23,6 +23,34 @@ want=$(printf '%s\n' 'Window: Meet - Google Chrome (google-chrome)' \
   'Window: Slack (Slack)')
 [ "$out" = "$want" ] || fail "the candidates were: $out"
 
+# --- what each row shows: name, title, icon ---------------------------------
+# The app id comes in brackets from a patched portal and is looked up in a
+# desktop entry by file name, then by StartupWMClass; an older portal sends
+# none, and an unknown id keeps its own name. Scratch XDG dirs, so the
+# answer cannot depend on what this box has installed.
+mkdir -p "$T/xdg/applications"
+printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Acme Browser' \
+  'Exec=true' 'Icon=acme-browser' > "$T/xdg/applications/acme-browser.desktop"
+printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Chatter' \
+  'Exec=true' 'Icon=chatter' 'StartupWMClass=ChatterApp' \
+  > "$T/xdg/applications/chatter.desktop"
+TAB=$(printf '\t')
+rows=$(printf '%s\n' 'Window: Meet - Acme (a1b2) [acme-browser]' \
+  'Window: #eng (c3d4) [ChatterApp]' 'Window: Old style (e5f6)' \
+  'Window: Odd (0a) [mystery]' 'Monitor: DP-1' |
+  env XDG_DATA_DIRS="$T/xdg" XDG_DATA_HOME="$T/none" "$C" --rows)
+want=$(printf '%s\n' "Acme Browser${TAB}Meet - Acme${TAB}acme-browser" \
+  "Chatter${TAB}#eng${TAB}chatter" \
+  "Window${TAB}Old style${TAB}application-x-executable" \
+  "mystery${TAB}Odd${TAB}application-x-executable")
+[ "$rows" = "$want" ] || fail "the rows were: $rows"
+
+# The app id is a CONTRACT: an integrator's compositor rules key on it.
+grep -q '^APP_ID = "severance-share-chooser"$' "$C" ||
+  fail "the chooser's app id is no longer severance-share-chooser"
+grep -q 'GLib.set_prgname(APP_ID)' "$C" ||
+  fail "the chooser no longer names its window with APP_ID"
+
 # --- live, inside an enclave's context ----------------------------------------
 WF=${WAYFIRE:-/opt/wayfire/bin/wayfire}
 _plug=$(find "${WF%/bin/wayfire}" -name 'libsecurity-context-v1.so' \

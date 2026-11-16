@@ -3,8 +3,15 @@
 
 The chooser an ENCLAVE's xdg-desktop-portal-wlr runs for screen sharing
 (its config names this as a `dmenu` chooser). The portal writes one target
-per line on stdin, `Monitor: ...` or `Window: <title> (<app id>)`, and
-takes the line printed on stdout as the choice; printing nothing declines.
+per line on stdin and takes the line printed on stdout as the choice;
+printing nothing declines. A window line is
+
+    Window: <title> (<identifier>) [<app id>]
+
+where the `[<app id>]` part is wayfire-mods' xdpw-chooser-app-id patch: an
+older backend omits it, and the row then shows the title with a generic
+icon. The line printed back is ALWAYS the one received, unaltered, because
+the portal matches it byte for byte against its own.
 
 ONLY WINDOWS ARE OFFERED. An enclave may capture its own windows and never
 a whole output (a screen holds personal windows), so the compositor refuses
@@ -13,17 +20,28 @@ an output, and offering one would only produce a share that fails.
 AN ORDINARY WINDOW, not an overlay: an enclave gets no layer-shell, so the
 usual pickers (slurp, wofi) cannot run, and as a normal toplevel this window
 carries the enclave's mark, which is how the person sees which side asks.
+Its app id is APP_ID, fixed, so a compositor rule can key on it (an
+integrator makes it sticky and always on top, for instance).
+Each row is the app's icon and name, from the ENCLAVE's own installed apps
+(its desktop files), over the window's title. The header takes
+SEVERANCE_ENCLAVE_COLOR (any CSS colour) when set, else the theme's accent.
 An unanswered prompt DECLINES after SEVERANCE_CHOOSER_TIMEOUT seconds
 (default 120), rather than leaving the portal waiting forever.
 
-`--candidates` prints the lines that would be offered and exits, with no
+`--candidates` prints the lines that would be offered, and `--rows` what
+each row would show (`name<TAB>title<TAB>icon`), and both exit with no
 display needed (for tests).
 """
 
 import os
+import re
 import sys
 
+APP_ID = "severance-share-chooser"
 PREFIX = "Window: "
+LINE = re.compile(r"^Window: (?P<title>.*) \((?P<ident>[^() ]*)\)"
+                  r"(?: \[(?P<app>[^\]]*)\])?$")
+FALLBACK_ICON = "application-x-executable"
 
 
 def candidates(lines):
@@ -31,46 +49,175 @@ def candidates(lines):
             if ln.startswith(PREFIX)]
 
 
+def parse(line):
+    """(title, app id) of one candidate; either may be empty."""
+    m = LINE.match(line)
+    if not m:
+        return line[len(PREFIX):], ""
+    return m.group("title"), m.group("app") or ""
+
+
+def app_info(app_id):
+    """The enclave's desktop entry for an app id, or None.
+
+    By file name first (google-chrome -> google-chrome.desktop, any case),
+    then by StartupWMClass, which is how Electron apps (Slack: app id
+    `Slack`, file slack.desktop) are found."""
+    if not app_id:
+        return None
+    import gi
+    from gi.repository import Gio
+    try:        # GLib 2.86 moved it to GioUnix and deprecates the old name
+        gi.require_version("GioUnix", "2.0")
+        from gi.repository import GioUnix
+        desktop = GioUnix.DesktopAppInfo
+    except (ValueError, ImportError):
+        desktop = Gio.DesktopAppInfo
+    for name in (app_id, app_id.lower()):
+        try:
+            info = desktop.new(name + ".desktop")
+        except TypeError:
+            info = None
+        if info is not None:
+            return info
+    want = app_id.lower()
+    for info in Gio.AppInfo.get_all():
+        wm = info.get_startup_wm_class() if hasattr(
+            info, "get_startup_wm_class") else None
+        if wm and wm.lower() == want:
+            return info
+    return None
+
+
+def describe(line):
+    """(name, title, icon) a row shows: icon is a GIcon string."""
+    title, app_id = parse(line)
+    info = app_info(app_id)
+    if info is not None:
+        icon = info.get_icon()
+        return (info.get_name() or app_id, title,
+                icon.to_string() if icon else FALLBACK_ICON)
+    return (app_id or "Window", title, FALLBACK_ICON)
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, int(v)))
+
+
+def ink(colour):
+    """Header text for a band of this colour: near-black on a light one,
+    white otherwise (and for any colour not written as #rrggbb, such as the
+    theme accent, which is dark in this fleet's themes)."""
+    m = re.match(r"^#([0-9a-fA-F]{6})$", colour)
+    if not m:
+        return "white"
+    r, g, b = (int(m.group(1)[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return "#1a1a1a" if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 \
+        else "white"
+
+
+CSS = """
+.sev-header { padding: 18px 22px; background-color: %s; }
+.sev-header label { color: %s; }
+.sev-heading { font-size: 150%%; font-weight: bold; }
+.sev-sub { opacity: 0.85; }
+.sev-list row { padding: 10px 14px; }
+.sev-app { font-weight: bold; font-size: 115%%; }
+.sev-title { opacity: 0.7; }
+.sev-buttons { padding: 12px 18px; }
+.sev-buttons button { padding: 6px 22px; }
+"""
+
+
 def choose(cands, enclave, timeout):
     import gi
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk, GLib
+    gi.require_version("Gdk", "4.0")
+    from gi.repository import Gdk, Gio, GLib, Gtk
+
+    # The app id, set before GTK opens the display: with no Gtk.Application
+    # GTK names the toplevel after the program name.
+    GLib.set_prgname(APP_ID)
 
     # A plain window and its own loop, not a Gtk.Application: that would
     # register on the session bus, and a one-shot prompt has no use for it.
     result = {"line": ""}
     loop = GLib.MainLoop()
 
+    def size():
+        """A third of the first monitor's width and half its height, in
+        bounds: the desktop runs at scale 1, so a fixed size that suits a
+        1080p panel is a postage stamp on a 2880 one."""
+        mons = Gdk.Display.get_default().get_monitors()
+        if mons.get_n_items():
+            g = mons.get_item(0).get_geometry()
+            return (clamp(g.width / 3, 640, 1200),
+                    clamp(g.height / 2, 480, 1000))
+        return 720, 560
+
     def build():
+        colour = os.environ.get("SEVERANCE_ENCLAVE_COLOR", "").strip()
+        css = Gtk.CssProvider()
+        band = colour or "@theme_selected_bg_color"
+        css.load_from_data(CSS % (band, ink(band)), -1)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
         win = Gtk.Window()
         win.set_title("Share a window from %s" % enclave)
-        win.set_default_size(460, 320)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        for side in ("top", "bottom", "start", "end"):
-            getattr(box, "set_margin_" + side)(12)
-        if not cands:
-            box.append(Gtk.Label(
-                label="%s has no window that can be shared." % enclave))
+        win.set_default_size(*size())
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        head = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        head.add_css_class("sev-header")
+        h1 = Gtk.Label(label="Share a window", xalign=0)
+        h1.add_css_class("sev-heading")
+        h2 = Gtk.Label(label="from %s" % enclave, xalign=0)
+        h2.add_css_class("sev-sub")
+        head.append(h1)
+        head.append(h2)
+        outer.append(head)
+
         lst = Gtk.ListBox()
+        lst.add_css_class("sev-list")
         lst.set_selection_mode(Gtk.SelectionMode.SINGLE)
         for c in cands:
-            row = Gtk.Label(label=c[len(PREFIX):], xalign=0)
-            row.set_margin_top(4)
-            row.set_margin_bottom(4)
+            name, title, icon = describe(c)
+            row = Gtk.Box(spacing=14)
+            img = Gtk.Image.new_from_gicon(Gio.Icon.new_for_string(icon))
+            img.set_pixel_size(48)
+            row.append(img)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                           valign=Gtk.Align.CENTER, hexpand=True)
+            a = Gtk.Label(label=name, xalign=0)
+            a.add_css_class("sev-app")
+            t = Gtk.Label(label=title, xalign=0, ellipsize=3)  # END
+            t.add_css_class("sev-title")
+            text.append(a)
+            text.append(t)
+            row.append(text)
             lst.append(row)
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_child(lst)
         if cands:
-            box.append(scroll)
+            outer.append(scroll)
+        else:
+            outer.append(Gtk.Label(
+                label="%s has no window that can be shared." % enclave,
+                vexpand=True))
+
         buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        buttons.add_css_class("sev-buttons")
         cancel = Gtk.Button(label="Cancel")
         share = Gtk.Button(label="Share")
+        share.add_css_class("suggested-action")
         share.set_sensitive(False)
         buttons.append(cancel)
         if cands:
             buttons.append(share)
-        box.append(buttons)
-        win.set_child(box)
+        outer.append(buttons)
+        win.set_child(outer)
 
         def done(line):
             if "done" in result:      # a timeout after a click, say
@@ -80,6 +227,12 @@ def choose(cands, enclave, timeout):
             win.destroy()
             loop.quit()
 
+        def key(_c, kv, _code, _state):
+            if kv == Gdk.KEY_Escape:
+                done("")
+                return True
+            return False
+
         lst.connect("row-selected",
                     lambda _l, row: share.set_sensitive(row is not None))
         lst.connect("row-activated",
@@ -88,8 +241,15 @@ def choose(cands, enclave, timeout):
             cands[lst.get_selected_row().get_index()]))
         cancel.connect("clicked", lambda _b: done(""))
         win.connect("close-request", lambda _w: done("") or False)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", key)
+        win.add_controller(keys)
         GLib.timeout_add_seconds(timeout, lambda: done("") or False)
         win.present()
+        if cands:
+            first = lst.get_row_at_index(0)
+            lst.select_row(first)
+            first.grab_focus()
 
     build()
     loop.run()
@@ -101,6 +261,10 @@ def main(argv):
     if argv[1:] == ["--candidates"]:
         for c in cands:
             print(c)
+        return 0
+    if argv[1:] == ["--rows"]:
+        for c in cands:
+            print("\t".join(describe(c)))
         return 0
     enclave = os.environ.get("SEVERANCE_ENCLAVE", "this enclave")
     try:
