@@ -105,26 +105,21 @@ def clamp(v, lo, hi):
     return max(lo, min(hi, int(v)))
 
 
-def ink(colour):
-    """Header text for a band of this colour: near-black on a light one,
-    white otherwise (and for any colour not written as #rrggbb, such as the
-    theme accent, which is dark in this fleet's themes)."""
-    m = re.match(r"^#([0-9a-fA-F]{6})$", colour)
-    if not m:
-        return "white"
-    r, g, b = (int(m.group(1)[i:i + 2], 16) / 255 for i in (0, 2, 4))
-    return "#1a1a1a" if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 \
-        else "white"
-
-
+# The header is a dark neutral band whose HEADING carries the accent, and a
+# selected row is a soft tint with a bar on its left edge: both used to be the
+# accent at full strength, so the first (selected) row ran into the header.
+# One placeholder, the accent: the enclave's colour, else the theme's.
 CSS = """
-.sev-header { padding: 18px 22px; background-color: %s; }
-.sev-header label { color: %s; }
-.sev-heading { font-size: 150%%; font-weight: bold; }
-.sev-sub { opacity: 0.85; }
+.sev-header { padding: 18px 22px; background-color: shade(@theme_bg_color, 0.8);
+  box-shadow: inset 0 -3px 0 ACCENT; }
+.sev-heading { font-size: 150%; font-weight: bold; color: ACCENT; }
+.sev-sub { opacity: 0.75; }
 .sev-list row { padding: 10px 14px; }
+.sev-list row:selected { background-color: alpha(ACCENT, 0.22);
+  box-shadow: inset 5px 0 0 ACCENT; }
+.sev-list row:selected label { color: @theme_fg_color; }
 .sev-app { opacity: 0.7; }
-.sev-title { font-weight: bold; font-size: 115%%; }
+.sev-title { font-weight: bold; font-size: 124%; }
 .sev-buttons { padding: 12px 18px; }
 .sev-buttons button { padding: 6px 22px; }
 """
@@ -159,8 +154,8 @@ def choose(cands, enclave, timeout):
     def build():
         colour = os.environ.get("SEVERANCE_ENCLAVE_COLOR", "").strip()
         css = Gtk.CssProvider()
-        band = colour or "@theme_selected_bg_color"
-        css.load_from_data(CSS % (band, ink(band)), -1)
+        accent = colour or "@theme_selected_bg_color"
+        css.load_from_data(CSS.replace("ACCENT", accent), -1)
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
