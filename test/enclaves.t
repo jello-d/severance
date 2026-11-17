@@ -67,11 +67,18 @@ S=/run/severance/acme
 envout=$(env SEV_LIB="$HERE/lib" SEVERANCE_ENCLAVES_DIR="$ED" \
   PATH="$T/bin:$PATH" sh -c '. "$SEV_LIB/common_lib"
   . "$SEV_LIB/provision_lib"; en_load acme && _pv_render_env')
-for l in "WAYLAND_DISPLAY=$S/wayland-0" "PULSE_SERVER=unix:$S/pulse" \
+for l in "WAYLAND_DISPLAY=wayland-0" "PULSE_SERVER=unix:$S/pulse" \
   "PIPEWIRE_REMOTE=$S/pipewire-0"; do
   printf '%s\n' "$envout" | grep -qxF "$l" ||
     fail "the environment and the list disagree: no '$l' in $envout"
 done
+# ...and the display is relative, resolved through the runtime unit's link,
+# whose target must be exactly column 6 of the list.
+tgt=$(sed -n 's|^ExecStart=/bin/ln -sfn \([^ ]*\) .*|\1|p' \
+  "$HERE/share/units/severance-runtime@.service" |
+  sed -e "s|@SHARE_ROOT@|/run/severance|" -e "s|%i|acme|")
+[ "$tgt" = "$S/wayland-0" ] ||
+  fail "the runtime link target '$tgt' is not column 6 ($S/wayland-0)"
 
 # SEVERANCE_SHARE_ROOT moves the share dir, and the sockets in it with it.
 out=$(env SEVERANCE_SHARE_ROOT=/srv/sev sh -c '

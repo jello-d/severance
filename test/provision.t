@@ -184,6 +184,11 @@ printf '%s\n' "$out" | grep -q 'xdg-desktop-portal portals.conf' &&
 want "$T/userunits/severance-tray@.service" "the tray unit is not installed"
 want "dry-run: systemctl --global enable severance-tray@newe.service" \
   "the tray unit is not enabled"
+# The runtime links (WAYLAND_DISPLAY=wayland-0 resolves through them).
+want "$T/userunits/severance-runtime@.service" \
+  "the runtime-link unit is not installed"
+want "dry-run: systemctl --global enable severance-runtime@newe.service" \
+  "the runtime-link unit is not enabled"
 # ORDER: linger starts the user manager at once and a manager reads
 # environment.d when it starts, so the file must exist before linger is on.
 # The other order was measured live: a session with no enclave environment.
@@ -295,7 +300,7 @@ printf '%s\n' "$xd" | grep -qx \
   "chooser_cmd=$HERE/libexec/severance-share-chooser" ||
   fail "the portal does not run THIS install's chooser: $xd"
 env_out=$(render acme _pv_render_env)
-for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=/run/severance/acme/wayland-0 \
+for l in SEVERANCE_ENCLAVE=acme WAYLAND_DISPLAY=wayland-0 \
          PULSE_SERVER=unix:/run/severance/acme/pulse \
          PIPEWIRE_REMOTE=/run/severance/acme/pipewire-0 \
   DOCKER_HOST=unix:///run/severance-docker-alice-acme/docker.sock; do
@@ -326,6 +331,29 @@ case $(envck) in *"[FAIL]"*"60-late.conf:WAYLAND_DISPLAY"*) ;;
   *) fail "an override of WAYLAND_DISPLAY was not named: $(envck)" ;;
 esac
 rm -f "$EH/60-late.conf"
+
+# The display link, checked as ROOT (the runtime dir is the account's): the
+# right link passes, a wrong one is named. A stub id says root.
+RU=$T/ru
+mkdir -p "$RU/990"
+cat > "$T/bin2-id" <<'EOF2'
+#!/bin/sh
+[ "$1" = -u ] && { echo 0; exit 0; }
+exec /usr/bin/id "$@"
+EOF2
+mkdir -p "$T/idbin"; mv "$T/bin2-id" "$T/idbin/id"; chmod +x "$T/idbin/id"
+linkck() {
+  SEVERANCE_RUN_USER_ROOT=$RU; export SEVERANCE_RUN_USER_ROOT
+  _o=$PATH; PATH="$T/idbin:$PATH"
+  render acme _pv_check_runtime_link
+  PATH=$_o; unset SEVERANCE_RUN_USER_ROOT
+}
+ln -sfn /run/severance/acme/wayland-0 "$RU/990/wayland-0"
+case $(linkck) in *"[OK]"*"wayland-0 -> /run/severance/acme/wayland-0"*) ;;
+  *) fail "a correct display link was not accepted: $(linkck)" ;; esac
+ln -sfn /elsewhere "$RU/990/wayland-0"
+case $(linkck) in *"[FAIL]"*"'/elsewhere'"*) ;;
+  *) fail "a wrong display link was not named: $(linkck)" ;; esac
 
 # The portal ROUTING is the integrator's file; check asserts only that every
 # portals config the enclave has sends ScreenCast to wlr, since which one
@@ -399,7 +427,7 @@ want "dry-run: chown -R root:root $HR/alice-acme.retired-" \
   "the retired home is not taken away from the freed uid"
 want "dry-run: userdel alice-acme" "the account is not removed"
 for u in severance-display severance-notify-owner severance-notify-enclave \
-  severance-tray
+  severance-tray severance-runtime
 do
   want "dry-run: systemctl --global disable $u@acme.service" \
     "forget leaves $u enabled"

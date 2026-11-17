@@ -128,7 +128,8 @@ _PV_DISPLAY=severance-display@.service
 _PV_USER_UNITS="severance-display@.service:owner
 severance-notify-owner@.service:owner
 severance-notify-enclave@.service:enclave
-severance-tray@.service:enclave"
+severance-tray@.service:enclave
+severance-runtime@.service:enclave"
 # Device groups every enclave account joins: the GPU render node and the
 # cameras. Decided 2026-11-01: by group, always. Cameras carry the uaccess
 # tag, which ACLs them only to the owner of the seat's active session, and
@@ -287,7 +288,10 @@ _pv_render_env() {
   echo "# Written by severance for enclave $EN_NAME; re-written on every"
   echo "# provision. Change the enclave record, not this file."
   echo "SEVERANCE_ENCLAVE=$EN_NAME"
-  echo "WAYLAND_DISPLAY=$EN_SOCK_DISPLAY"
+  # RELATIVE, resolved in the account's runtime dir, where the unit
+  # severance-runtime@ links `wayland-0` to $EN_SOCK_DISPLAY: some tools join
+  # the two themselves and get an absolute value wrong.
+  echo "WAYLAND_DISPLAY=wayland-0"
   echo "PULSE_SERVER=unix:$EN_SOCK_AUDIO"
   echo "PIPEWIRE_REMOTE=$EN_SOCK_VIDEO"
   [ "$EN_DOCKER" = yes ] &&
@@ -387,6 +391,7 @@ _pv_check() {   # [name...]
     _pv_check_share
     _pv_check_docker
     _pv_check_user_units
+    _pv_check_runtime_link
     _pv_check_repos
   done
   return "$REPORT_RC"
@@ -824,6 +829,23 @@ _pv_enclave_session() {   # start|stop <unit>
   _pv_eu=$(getent passwd "$EN_ACCOUNT" | cut -d: -f3)
   [ -n "$_pv_eu" ] || return 0
   _pv_session "$EN_ACCOUNT" "$_pv_eu" 0 "$1" "$2"
+}
+
+# The display link the runtime unit makes, read as root (the runtime dir is
+# the account's, 0700); otherwise said to be unverifiable.
+_pv_check_runtime_link() {
+  if [ "$(id -u)" != 0 ]; then
+    _ok "display link unverifiable here (inside a 0700 runtime dir)"
+    return 0; fi
+  [ "$EN_UID" != - ] || return 0
+  _pv_rl=$(readlink "${SEVERANCE_RUN_USER_ROOT:-/run/user}/$EN_UID/wayland-0" \
+    2>/dev/null) || _pv_rl=
+  if [ "$_pv_rl" = "$EN_SOCK_DISPLAY" ]; then
+    _ok "\$XDG_RUNTIME_DIR/wayland-0 -> $EN_SOCK_DISPLAY"
+  else
+    _bad "\$XDG_RUNTIME_DIR/wayland-0 is '${_pv_rl:-missing}', want" \
+      "$EN_SOCK_DISPLAY (is severance-runtime@$EN_NAME running?)"
+  fi
 }
 
 _pv_check_user_units() {

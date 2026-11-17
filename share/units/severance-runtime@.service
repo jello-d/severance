@@ -1,0 +1,22 @@
+# Managed by severance (docs/enclave-user.md). A USER unit, in the enclave
+# account's lingering user manager: it links the enclave's display socket
+# into the account's OWN runtime dir as `wayland-0`, so the enclave's
+# environment can say WAYLAND_DISPLAY=wayland-0 like any desktop session.
+# An absolute WAYLAND_DISPLAY is valid, and the published socket path stays
+# absolute (`severance enclaves` column 6); this is for the tools that join
+# $XDG_RUNTIME_DIR and $WAYLAND_DISPLAY themselves, and get an absolute
+# value wrong. The runtime dir is the account's (0700) and lives as long as
+# its manager, so the link does too. The instance name is the enclave; the
+# ExecCondition lets only the account whose SEVERANCE_ENCLAVE names it run it.
+[Unit]
+Description=severance: the runtime links of enclave %i
+Before=default.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecCondition=/bin/sh -c 'test "$SEVERANCE_ENCLAVE" = "%i"'
+ExecStart=/bin/ln -sfn @SHARE_ROOT@/%i/wayland-0 %t/wayland-0
+
+[Install]
+WantedBy=default.target

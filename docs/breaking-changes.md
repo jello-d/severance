@@ -450,3 +450,20 @@ pkexec, no polkit agent, failed authentication, or no launcher installed).
 That phrase is now a CONTRACT: a launcher may key a terminal fallback on
 it, and changing it is a breaking change. `work enter` never uses polkit:
 an interactive shell needs a terminal.
+
+## 21. An enclave's WAYLAND_DISPLAY is relative: `wayland-0`
+
+Inside an enclave, WAYLAND_DISPLAY was the socket's absolute path
+(`/run/severance/<enclave>/wayland-0`). It is now `wayland-0`, resolved in
+the account's own runtime dir, where the user unit
+`severance-runtime@<enclave>` links `$XDG_RUNTIME_DIR/wayland-0` to that same
+socket at every start of the enclave's manager.
+
+An absolute value is valid, and libwayland has accepted one for years; the
+change is for the tools that join `$XDG_RUNTIME_DIR` and `$WAYLAND_DISPLAY`
+themselves and get an absolute value wrong (a session manager reported the
+display dead for exactly that reason, measured inside an enclave).
+
+**Nothing published moves.** The socket's absolute path is still column 6
+of `severance enclaves`, and a consumer outside the enclave should keep
+reading it there. `severance enclave check` verifies the link, as root.

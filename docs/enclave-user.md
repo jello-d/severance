@@ -120,6 +120,11 @@ group, and its sockets are made 0770 so only that group connects.
 
 - DISPLAY: a small helper in the login user's session binds `wayland-0` and
   registers it through `wp_security_context_manager_v1`, as Flatpak does
+  (the enclave reaches it as WAYLAND_DISPLAY=wayland-0, relative: the user
+  unit severance-runtime@<enclave> links the account's own
+  `$XDG_RUNTIME_DIR/wayland-0` to this socket, because some tools join the
+  two themselves and get an absolute value wrong; the published path stays
+  absolute)
   (sandbox engine `severance`, app id and instance id = the enclave). The
   compositor then offers clients on it only an ALLOWLIST of protocols: no
   capture of the real screen, no clipboard reading, no synthetic input; window
