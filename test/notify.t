@@ -57,6 +57,7 @@ XML = """<node><interface name="org.freedesktop.Notifications">
 <arg type="u" direction="out"/></method>
 <method name="CloseNotification"><arg type="u" direction="in"/></method>
 <signal name="ActionInvoked"><arg type="u"/><arg type="s"/></signal>
+<signal name="ActivationToken"><arg type="u"/><arg type="s"/></signal>
 </interface></node>"""
 out = open(sys.argv[1], "a")
 state = {"n": 100}
@@ -71,10 +72,18 @@ def method(conn, sender, path, iface, name, params, inv):
         out.flush()
         inv.return_value(GLib.Variant("(u)", (oid,)))
         if "please-click" in summ:
-            GLib.timeout_add(300, lambda: conn.emit_signal(
-                None, "/org/freedesktop/Notifications",
-                "org.freedesktop.Notifications", "ActionInvoked",
-                GLib.Variant("(us)", (oid, "default"))) and False)
+            # As mako does: an activation token from the click, THEN the
+            # action. "badtoken" sends one no real daemon would.
+            tok = "bad tok\n" if "badtoken" in summ else "tok-%d" % oid
+            def click(oid=oid, tok=tok):
+                for sig, args in (("ActivationToken", (oid, tok)),
+                                  ("ActionInvoked", (oid, "default"))):
+                    conn.emit_signal(
+                        None, "/org/freedesktop/Notifications",
+                        "org.freedesktop.Notifications", sig,
+                        GLib.Variant("(us)", args))
+                return False
+            GLib.timeout_add(300, click)
     else:
         inv.return_value(None)
 info = Gio.DBusNodeInfo.new_for_xml(XML).interfaces[0]
@@ -86,7 +95,7 @@ Gio.bus_own_name(Gio.BusType.SESSION, "org.freedesktop.Notifications",
                  Gio.BusNameOwnerFlags.NONE, acquired, None, None)
 GLib.MainLoop().run()
 PYEOF
-# The listener: prints the first ActionInvoked on the enclave's bus, exits.
+# The listener: prints every relayed signal on the enclave's bus, in order.
 cat > "$T/listen.py" <<'PYEOF'
 import gi
 gi.require_version("Gio", "2.0")
@@ -94,9 +103,8 @@ from gi.repository import Gio, GLib
 loop = GLib.MainLoop()
 bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 def sig(conn, sender, path, iface, name, params):
-    print("%s %d %s" % ((name,) + tuple(params.unpack())), flush=True)
-    loop.quit()
-bus.signal_subscribe(None, "org.freedesktop.Notifications", "ActionInvoked",
+    print("%s %d %r" % ((name,) + tuple(params.unpack())), flush=True)
+bus.signal_subscribe(None, "org.freedesktop.Notifications", None,
                      None, None, Gio.DBusSignalFlags.NONE, sig)
 print("ready", flush=True)
 loop.run()
@@ -144,10 +152,23 @@ assert n["actions"] == ["default", "Open"], n
 # image-path pointed at a file on the OWNER's side: dropped.
 assert n["hints"] == ["urgency", "x-severance-enclave"], n
 PYEOF
-# The click travels back to the app that posted it.
+# The click travels back to the app that posted it, its activation token
+# FIRST (so the app can raise its own window), both unchanged.
 waitfor 'grep -q ActionInvoked "$T/listen.log"' "the click to come back"
-[ "$(cat "$T/listen.log" | tail -1)" = "ActionInvoked 1 default" ] ||
-  fail "the click arrived as: $(tail -1 "$T/listen.log")"
+got=$(grep -E '^(ActivationToken|ActionInvoked) ' "$T/listen.log")
+want="ActivationToken 1 'tok-101'
+ActionInvoked 1 'default'"
+[ "$got" = "$want" ] || fail "the click arrived as: $got"
+# A token no daemon would send (whitespace, a newline) is DROPPED: the click
+# still arrives, alone.
+
+notify Slack 'please-click badtoken' x > /dev/null
+waitfor '[ "$(grep -c ActionInvoked "$T/listen.log")" -ge 2 ]' \
+  "the second click"
+[ "$(grep -c ActivationToken "$T/listen.log")" = 1 ] ||
+  fail "a malformed token crossed: $(cat "$T/listen.log")"
+grep -q 'dropped an activation token' "$T/enclave.log" ||
+  fail "the dropped token was not said: $(cat "$T/enclave.log")"
 
 # Caps: an enclave cannot push an arbitrarily large summary across.
 long=$(python3 -I -c 'print("x" * 10000)')

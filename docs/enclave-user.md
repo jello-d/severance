@@ -205,8 +205,15 @@ group, and its sockets are made 0770 so only that group connects.
   everything through, or not following the app's connection, fails it.
 - Enclave to login user: notify (app name, summary, body, actions, a fixed
   subset of hints, expiry), close.
-- Login user to enclave: action invoked, notification closed. Without the
-  return path, clicking a chat notification does nothing.
+- Login user to enclave: action invoked, notification closed, and the
+  click's XDG ACTIVATION TOKEN, ahead of the action. Without the return
+  path, clicking a chat notification does nothing; without the token, the
+  app hears the click and cannot raise its own window. The token is minted
+  on the login user's side (the clicked surface and its input serial,
+  which an enclave never has), and it can only activate a surface of the
+  client that presents it, so an enclave can raise ITS OWN window and
+  nobody else's, and only because the user clicked. It crosses as
+  untrusted data: printable ASCII, at most 256, or dropped and said.
 - ONE daemon on the login user's side keeps placement, do-not-disturb and
   history coherent.
 

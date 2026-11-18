@@ -10,7 +10,8 @@ notification daemon. This bridges exactly that, and nothing else
                   org.freedesktop.Notifications on the enclave's bus and
                   forwards each notification, one JSON line, through
                   <share>/<name>/relay. Turns the owner's replies back into
-                  ActionInvoked and NotificationClosed for the app.
+                  ActivationToken, ActionInvoked and NotificationClosed
+                  for the app.
   owner <name>    as the owner, in the owner's graphical session. Listens
                   on that socket and posts to the owner's daemon (mako).
 
@@ -42,6 +43,12 @@ PATH = "/org/freedesktop/Notifications"
 IFACE = "org.freedesktop.Notifications"
 LIMITS = {"app": 128, "summary": 512, "body": 4096, "action": 128}
 MAX_ACTIONS = 8
+# An xdg-activation token, minted on the OWNER's side from the user's click
+# (it has the focused surface and input serial an enclave never does), so
+# the app can raise its OWN window: the compositor only lets a token
+# activate a surface of the client that presents it. Opaque, so it crosses
+# as untrusted data: printable ASCII, capped, or not at all.
+TOKEN_RE = re.compile(r"[\x21-\x7e]{1,256}")
 INTROSPECTION = """
 <node>
   <interface name="org.freedesktop.Notifications">
@@ -66,6 +73,9 @@ INTROSPECTION = """
       <arg type="u"/><arg type="u"/>
     </signal>
     <signal name="ActionInvoked">
+      <arg type="u"/><arg type="s"/>
+    </signal>
+    <signal name="ActivationToken">
       <arg type="u"/><arg type="s"/>
     </signal>
   </interface>
@@ -223,7 +233,11 @@ class Owner:
         if entry is None:
             return
         link, eid = entry
-        if name == "ActionInvoked":
+        if name == "ActivationToken":
+            # Before ActionInvoked, as the daemon sends it; one ordered line,
+            # so the app sees the token before the click it belongs to.
+            link.send({"op": "token", "id": eid, "token": vals[1]})
+        elif name == "ActionInvoked":
             link.send({"op": "action", "id": eid, "key": vals[1]})
         elif name == "NotificationClosed":
             link.send({"op": "closed", "id": eid, "reason": vals[1]})
@@ -308,7 +322,14 @@ class Enclave:
             nid = int(msg.get("id", 0))
         except (TypeError, ValueError):
             return
-        if msg.get("op") == "action":
+        if msg.get("op") == "token":
+            tok = msg.get("token")
+            if not isinstance(tok, str) or not TOKEN_RE.fullmatch(tok):
+                say("dropped an activation token that is not a plain"
+                    " token (printable ASCII, at most 256)")
+                return
+            sig, args = "ActivationToken", GLib.Variant("(us)", (nid, tok))
+        elif msg.get("op") == "action":
             sig, args = "ActionInvoked", GLib.Variant(
                 "(us)", (nid, cap(msg.get("key"), LIMITS["action"])))
         elif msg.get("op") == "closed":

@@ -467,3 +467,19 @@ display dead for exactly that reason, measured inside an enclave).
 **Nothing published moves.** The socket's absolute path is still column 6
 of `severance enclaves`, and a consumer outside the enclave should keep
 reading it there. `severance enclave check` verifies the link, as root.
+
+## 22. The notification relay carries the click's activation token
+
+An ADDITION to the relay (entry 18's sibling): when the login user's
+notification daemon sends `ActivationToken(id, token)` for a click, the
+relay now delivers it to the enclave app, BEFORE the matching
+`ActionInvoked`, as the daemon sent them. An app that raises its window on
+a click (the notification spec's way to do it on Wayland) now can, from
+inside an enclave.
+
+The token is the login user's, minted from the real click, and the
+compositor only lets it activate a surface of the client that presents it,
+so it grants an enclave nothing but raising its own window, once. It
+crosses as untrusted data: printable ASCII, at most 256 characters,
+otherwise dropped with a log line. Nothing about an existing consumer
+changes; the enclave side simply advertises one more signal.
